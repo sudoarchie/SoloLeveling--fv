@@ -1,6 +1,8 @@
 "use client"
 
-import { useCallback, useRef, useEffect } from "react"
+import { useEffect } from "react"
+
+import { useCallback, useRef } from "react"
 
 interface SoundEffects {
   buttonClick: () => void
@@ -12,10 +14,37 @@ interface SoundEffects {
   achievement: () => void
 }
 
+const createOscillator = (audioContext: AudioContext, frequency: number, type: OscillatorType) => {
+  const oscillator = audioContext.createOscillator()
+  oscillator.type = type
+  oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime)
+  return oscillator
+}
+
+const createGainNode = (audioContext: AudioContext, gain: number) => {
+  const gainNode = audioContext.createGain()
+  gainNode.gain.setValueAtTime(gain, audioContext.currentTime)
+  return gainNode
+}
+
+const playSound = (audioContext: AudioContext, oscillator: OscillatorNode, gainNode: GainNode) => {
+  oscillator.connect(gainNode)
+  gainNode.connect(audioContext.destination)
+  oscillator.start()
+  oscillator.stop(audioContext.currentTime + 0.2) // Sound duration
+}
+
 export function useSoundEffects(): SoundEffects {
   const audioContextRef = useRef<AudioContext | null>(null)
   const soundsRef = useRef<{ [key: string]: AudioBuffer | null }>({})
   const isInitializedRef = useRef(false)
+
+  const getAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+    }
+    return audioContextRef.current
+  }, [])
 
   // Initialize audio context and load sounds
   const initializeAudio = useCallback(async () => {
@@ -23,13 +52,13 @@ export function useSoundEffects(): SoundEffects {
 
     try {
       // Create audio context
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const audioContext = getAudioContext()
 
       // Create synthetic sounds since we can't load external files
       const createBeepSound = (frequency: number, duration: number, type: OscillatorType = "sine", volume = 0.1) => {
-        const sampleRate = audioContextRef.current!.sampleRate
+        const sampleRate = audioContext.sampleRate
         const numSamples = sampleRate * duration
-        const buffer = audioContextRef.current!.createBuffer(1, numSamples, sampleRate)
+        const buffer = audioContext.createBuffer(1, numSamples, sampleRate)
         const channelData = buffer.getChannelData(0)
 
         for (let i = 0; i < numSamples; i++) {
@@ -56,9 +85,9 @@ export function useSoundEffects(): SoundEffects {
 
       // Create complex sounds
       const createComplexSound = (frequencies: number[], duration: number, type: OscillatorType = "sine") => {
-        const sampleRate = audioContextRef.current!.sampleRate
+        const sampleRate = audioContext.sampleRate
         const numSamples = sampleRate * duration
-        const buffer = audioContextRef.current!.createBuffer(1, numSamples, sampleRate)
+        const buffer = audioContext.createBuffer(1, numSamples, sampleRate)
         const channelData = buffer.getChannelData(0)
 
         for (let i = 0; i < numSamples; i++) {
@@ -95,41 +124,125 @@ export function useSoundEffects(): SoundEffects {
     } catch (error) {
       console.warn("Audio initialization failed:", error)
     }
-  }, [])
+  }, [getAudioContext])
 
-  // Play sound function
-  const playSound = useCallback((soundName: string) => {
-    if (!audioContextRef.current || !soundsRef.current[soundName]) return
+  const buttonClick = useCallback(() => {
+    const audioContext = getAudioContext()
+    const oscillator = createOscillator(audioContext, 440, "sine") // A4 note
+    const gainNode = createGainNode(audioContext, 0.1)
+    playSound(audioContext, oscillator, gainNode)
+  }, [getAudioContext])
 
-    try {
-      const source = audioContextRef.current.createBufferSource()
-      const gainNode = audioContextRef.current.createGain()
+  const toggleSwitch = useCallback(() => {
+    const audioContext = getAudioContext()
+    const oscillator1 = createOscillator(audioContext, 523.25, "square") // C5
+    const oscillator2 = createOscillator(audioContext, 659.25, "triangle") // E5
+    const gainNode = createGainNode(audioContext, 0.08)
 
-      source.buffer = soundsRef.current[soundName]
-      source.connect(gainNode)
-      gainNode.connect(audioContextRef.current.destination)
+    oscillator1.connect(gainNode)
+    oscillator2.connect(gainNode)
+    gainNode.connect(audioContext.destination)
 
-      // Set volume based on sound type
-      const volumes = {
-        buttonClick: 0.2,
-        formSubmit: 0.4,
-        levelUp: 0.6,
-        expGain: 0.3,
-        toggleSwitch: 0.15,
-        notification: 0.4,
-        achievement: 0.5,
-      }
+    oscillator1.start()
+    oscillator2.start()
+    oscillator1.stop(audioContext.currentTime + 0.15)
+    oscillator2.stop(audioContext.currentTime + 0.15)
+  }, [getAudioContext])
 
-      gainNode.gain.setValueAtTime(
-        volumes[soundName as keyof typeof volumes] || 0.3,
-        audioContextRef.current.currentTime,
-      )
+  const formSubmit = useCallback(() => {
+    const audioContext = getAudioContext()
+    // Short, low frequency click
+    const oscillator1 = createOscillator(audioContext, 120, "sawtooth")
+    const gainNode1 = createGainNode(audioContext, 0.2)
+    oscillator1.connect(gainNode1)
+    gainNode1.connect(audioContext.destination)
+    oscillator1.start()
+    oscillator1.stop(audioContext.currentTime + 0.1)
 
-      source.start()
-    } catch (error) {
-      console.warn("Sound playback failed:", error)
-    }
-  }, [])
+    // Slightly higher frequency confirming click
+    setTimeout(() => {
+      const oscillator2 = createOscillator(audioContext, 240, "sine")
+      const gainNode2 = createGainNode(audioContext, 0.15)
+      oscillator2.connect(gainNode2)
+      gainNode2.connect(audioContext.destination)
+      oscillator2.start()
+      oscillator2.stop(audioContext.currentTime + 0.1)
+    }, 100)
+  }, [getAudioContext])
+
+  const expGain = useCallback(() => {
+    const audioContext = getAudioContext()
+    const frequencies = [300, 400, 500] // Ascending tones for gain
+    let delay = 0
+    frequencies.forEach((freq) => {
+      setTimeout(() => {
+        const oscillator = createOscillator(audioContext, freq, "triangle")
+        const gainNode = createGainNode(audioContext, 0.1)
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.3)
+        playSound(audioContext, oscillator, gainNode)
+      }, delay)
+      delay += 80 // small delay between notes
+    })
+  }, [getAudioContext])
+
+  const levelUp = useCallback(() => {
+    const audioContext = getAudioContext()
+    const frequencies = [523, 659, 784, 1047] // C5, E5, G5, C6 (major chord)
+    let delay = 0
+
+    frequencies.forEach((freq) => {
+      setTimeout(() => {
+        const oscillator = createOscillator(audioContext, freq, "sine")
+        const gainNode = createGainNode(audioContext, 0.15) // Slightly louder
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6) // Longer decay
+        playSound(audioContext, oscillator, gainNode)
+      }, delay)
+      delay += 120 // Delay for arpeggio effect
+    })
+
+    // Add a deeper, sustained tone for impact
+    setTimeout(() => {
+      const oscillator = createOscillator(audioContext, 261, "sawtooth") // C4
+      const gainNode = createGainNode(audioContext, 0.2)
+      gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 1.0)
+      oscillator.connect(gainNode)
+      gainNode.connect(audioContext.destination)
+      oscillator.start()
+      oscillator.stop(audioContext.currentTime + 1.2)
+    }, 200)
+  }, [getAudioContext])
+
+  const notification = useCallback(() => {
+    const audioContext = getAudioContext()
+    // Short, crisp high-pitched sound
+    const oscillator1 = createOscillator(audioContext, 880, "square") // A5
+    const gainNode1 = createGainNode(audioContext, 0.08)
+    gainNode1.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.15)
+    playSound(audioContext, oscillator1, gainNode1)
+
+    setTimeout(() => {
+      const oscillator2 = createOscillator(audioContext, 1046, "square") // C6
+      const gainNode2 = createGainNode(audioContext, 0.1)
+      gainNode2.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.15)
+      playSound(audioContext, oscillator2, gainNode2)
+    }, 100)
+  }, [getAudioContext])
+
+  const achievement = useCallback(() => {
+    const audioContext = getAudioContext()
+    const frequencies = [523, 659, 784, 1047] // C5, E5, G5, C6 (major chord)
+    let delay = 0
+
+    frequencies.forEach((freq) => {
+      setTimeout(() => {
+        const oscillator = createOscillator(audioContext, freq, "sine")
+        const gainNode = createGainNode(audioContext, 0.2)
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6)
+        playSound(audioContext, oscillator, gainNode)
+      }, delay)
+      delay += 120 // Delay for arpeggio effect
+    })
+  }, [getAudioContext])
 
   // Initialize on first user interaction
   useEffect(() => {
@@ -149,12 +262,12 @@ export function useSoundEffects(): SoundEffects {
   }, [initializeAudio])
 
   return {
-    buttonClick: () => playSound("buttonClick"),
-    formSubmit: () => playSound("formSubmit"),
-    levelUp: () => playSound("levelUp"),
-    expGain: () => playSound("expGain"),
-    toggleSwitch: () => playSound("toggleSwitch"),
-    notification: () => playSound("notification"),
-    achievement: () => playSound("achievement"),
+    buttonClick,
+    formSubmit,
+    levelUp,
+    expGain,
+    toggleSwitch,
+    notification,
+    achievement,
   }
 }

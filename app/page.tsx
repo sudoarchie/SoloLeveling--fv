@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -179,6 +179,8 @@ const motivationalQuotes = [
   "The battlefield of GATE awaits. Are you ready?",
 ]
 
+const LOCAL_STORAGE_KEY = "gateTrackerData"
+
 export default function GATETracker() {
   const [currentExp, setCurrentExp] = useState(0)
   const [currentRank, setCurrentRank] = useState(ranks[0])
@@ -214,6 +216,47 @@ export default function GATETracker() {
     mentalState: "",
     finalComment: "",
   })
+
+  // Load data from local storage on mount
+  useEffect(() => {
+    try {
+      const savedData = localStorage.getItem(LOCAL_STORAGE_KEY)
+      if (savedData) {
+        const parsedData = JSON.parse(savedData)
+        setCurrentExp(parsedData.currentExp || 0)
+        setDailyReports(
+          parsedData.dailyReports
+            ? parsedData.dailyReports.map((report: DailyReport) => ({
+                ...report,
+                date: new Date(report.date), // Re-parse date strings to Date objects
+              }))
+            : [],
+        )
+        setSoundEnabled(parsedData.soundEnabled ?? true)
+        setDaysRemaining(parsedData.daysRemaining || 170)
+      }
+    } catch (error) {
+      console.error("Failed to load data from local storage:", error)
+    }
+  }, [])
+
+  // Save data to local storage whenever relevant state changes
+  useEffect(() => {
+    try {
+      const dataToSave = {
+        currentExp,
+        dailyReports: dailyReports.map((report) => ({
+          ...report,
+          date: report.date.toISOString(), // Convert Date objects to ISO strings
+        })),
+        soundEnabled,
+        daysRemaining,
+      }
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave))
+    } catch (error) {
+      console.error("Failed to save data to local storage:", error)
+    }
+  }, [currentExp, dailyReports, soundEnabled, daysRemaining])
 
   // Initialize quote and countdown
   useEffect(() => {
@@ -255,7 +298,7 @@ export default function GATETracker() {
     }
   }, [currentExp, currentRank, soundEnabled, sounds])
 
-  const calculateExpGain = (report: Omit<DailyReport, "date" | "expGained">) => {
+  const calculateExpGain = useCallback((report: Omit<DailyReport, "date" | "expGained">) => {
     let exp = 0
 
     // Positive EXP
@@ -284,23 +327,26 @@ export default function GATETracker() {
     exp += distractionPenalty[report.distractionsLevel as keyof typeof distractionPenalty] || 0
 
     return exp // Allow negative EXP
-  }
+  }, [])
 
-  const calculateAverageExpPerDay = () => {
+  const calculateAverageExpPerDay = useCallback(() => {
     if (dailyReports.length === 0) return 0
     const totalExp = dailyReports.reduce((sum, report) => sum + report.expGained, 0)
     return totalExp / dailyReports.length
-  }
+  }, [dailyReports])
 
-  const calculateDaysToNextRank = (averageExpPerDay: number) => {
-    const nextRank = getNextRank()
-    if (!nextRank || averageExpPerDay <= 0) return null
+  const calculateDaysToNextRank = useCallback(
+    (avgExpPerDay: number) => {
+      const nextRank = getNextRank()
+      if (!nextRank || avgExpPerDay <= 0) return null
 
-    const expNeeded = nextRank.minExp - currentExp
-    if (expNeeded <= 0) return 0
+      const expNeeded = nextRank.minExp - currentExp
+      if (expNeeded <= 0) return 0 // Already reached or surpassed next rank
 
-    return expNeeded / averageExpPerDay
-  }
+      return expNeeded / avgExpPerDay
+    },
+    [currentExp, dailyReports],
+  ) // Added dailyReports to dependencies
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -313,18 +359,20 @@ export default function GATETracker() {
     }
 
     setCurrentExp((prev) => Math.max(0, prev + expGained))
-    setDailyReports((prev) => [newReport, ...prev.slice(0, 29)]) // Keep last 30 days
+    setDailyReports((prev) => [newReport, ...prev.slice(0, 29)]) // Keep last 30 days for average
 
     // Calculate statistics for popup
-    const updatedReports = [newReport, ...dailyReports.slice(0, 29)]
-    const totalExp = updatedReports.reduce((sum, report) => sum + report.expGained, 0)
-    const averageExpPerDay = updatedReports.length > 0 ? totalExp / updatedReports.length : 0
-    const daysToNextRank = calculateDaysToNextRank(averageExpPerDay)
+    // Use the *new* list of daily reports for calculations immediately after update
+    const updatedReportsForAvg = [newReport, ...dailyReports.slice(0, 29)]
+    const totalExpForAvg = updatedReportsForAvg.reduce((sum, report) => sum + report.expGained, 0)
+    const averageExpPerDayCalculated =
+      updatedReportsForAvg.length > 0 ? totalExpForAvg / updatedReportsForAvg.length : 0
+    const daysToNextRankCalculated = calculateDaysToNextRank(averageExpPerDayCalculated)
 
     setLastSubmissionData({
       expGained,
-      averageExpPerDay,
-      daysToNextRank,
+      averageExpPerDay: averageExpPerDayCalculated,
+      daysToNextRank: daysToNextRankCalculated,
     })
 
     // Play sounds
@@ -380,10 +428,10 @@ export default function GATETracker() {
     return Math.min(100, Math.max(0, progress))
   }
 
-  const getNextRank = () => {
+  const getNextRank = useCallback(() => {
     const currentIndex = ranks.findIndex((rank) => rank.name === currentRank.name)
     return currentIndex < ranks.length - 1 ? ranks[currentIndex + 1] : null
-  }
+  }, [currentRank])
 
   const getRankColor = (rankName: string) => {
     const rank = ranks.find((r) => r.name === rankName)
