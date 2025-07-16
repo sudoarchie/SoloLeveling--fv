@@ -254,9 +254,9 @@ export default function GATETracker() {
         setDailyReports(
           parsedData.dailyReports
             ? parsedData.dailyReports.map((report: DailyReport) => ({
-                ...report,
-                date: new Date(report.date),
-              }))
+              ...report,
+              date: new Date(report.date),
+            }))
             : [],
         )
         setSoundEnabled(parsedData.soundEnabled ?? true)
@@ -621,7 +621,6 @@ export default function GATETracker() {
                                   handleButtonClick()
                                 }
                               }}
-                              initialFocus
                             />
                           </PopoverContent>
                         </Popover>
@@ -633,8 +632,8 @@ export default function GATETracker() {
                           EXP Gaining Activities
                         </h3>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                          <div className="space-y-2">
+                        <div className="grid grid-cols-1 items-center md:grid-cols-2 gap-4 mb-4 ">
+                          <div className="space-y-2 ">
                             <Label htmlFor="lectures" className="text-gray-300">
                               Lectures Completed
                             </Label>
@@ -645,7 +644,8 @@ export default function GATETracker() {
                               onChange={(e) =>
                                 setFormData({ ...formData, lecturesCompleted: Number.parseInt(e.target.value) || 0 })
                               }
-                              className="bg-gray-800 border-gray-600 text-gray-200 focus:ring-cyan-500"
+                              className="bg-gray-800 h-11 border-gray-600 text-gray-200 focus:ring-cyan-500"
+
                               onClick={handleButtonClick}
                             />
                             <p
@@ -654,7 +654,8 @@ export default function GATETracker() {
                               Target: {dailyTargets.lecturesCompleted}
                             </p>
                           </div>
-                          <div className="space-y-2 flex items-center justify-between p-2 rounded-md bg-gray-800 border border-gray-700">
+
+                          <div className="space-y-2 flex flex-row h-11  items-center justify-between px-2 rounded-md bg-gray-800 border border-gray-700">
                             <Label htmlFor="postLectureRevision" className="text-gray-300">
                               Post-Lecture Revision
                             </Label>
