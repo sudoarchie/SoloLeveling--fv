@@ -1240,4 +1240,3 @@ export default function GATETracker() {
     </div>
   )
 }
-
