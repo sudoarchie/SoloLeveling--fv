@@ -13,42 +13,41 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }: C
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
-      className={cn("p-3 bg-card text-card-foreground rounded-md shadow-lg", className)}
+      className={cn("p-3 bg-gray-800 text-white", className)}
       classNames={{
         months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
         month: "space-y-4",
-        caption: "flex justify-between pt-1 relative items-center", // Adjusted for better alignment of month/year and nav
-        caption_label: "text-sm font-medium text-foreground flex-grow text-center", // Centered month/year
-        nav: "flex items-center", // Ensure nav buttons are grouped
+        caption: "flex justify-center pt-1 relative items-center",
+        caption_label: "text-sm font-medium text-gray-200",
+        nav: "space-x-1 flex items-center",
         nav_button: cn(
           buttonVariants({ variant: "outline" }),
-          "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 border-border hover:bg-accent hover:text-accent-foreground",
+          "h-7 w-7 bg-gray-700 border-gray-600 p-0 opacity-50 hover:opacity-100 hover:bg-gray-600 text-gray-300",
         ),
         nav_button_previous: "absolute left-1",
         nav_button_next: "absolute right-1",
         table: "w-full border-collapse space-y-1",
-        head_row: "flex justify-between", // Ensure day headers are spread evenly
-        head_cell: "text-muted-foreground rounded-md w-9 font-normal text-[0.8rem] flex items-center justify-center", // Centered day cells
+        head_row: "flex",
+        head_cell: "text-gray-400 rounded-md w-9 font-normal text-[0.8rem]",
         row: "flex w-full mt-2",
-        cell: "h-9 w-9 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
+        cell: "h-9 w-9 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-gray-700/50 [&:has([aria-selected])]:bg-gray-700 first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
         day: cn(
           buttonVariants({ variant: "ghost" }),
-          "h-9 w-9 p-0 font-normal aria-selected:opacity-100 text-foreground hover:bg-accent hover:text-accent-foreground",
+          "h-9 w-9 p-0 font-normal aria-selected:opacity-100 text-gray-300 hover:bg-gray-700 hover:text-white",
         ),
         day_range_end: "day-range-end",
-        day_selected:
-          "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground",
-        day_today: "bg-accent text-accent-foreground",
+        day_selected: "bg-cyan-600 text-white hover:bg-cyan-700 hover:text-white focus:bg-cyan-600 focus:text-white",
+        day_today: "bg-gray-700 text-gray-200 font-semibold",
         day_outside:
-          "day-outside text-muted-foreground opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground",
-        day_disabled: "text-muted-foreground opacity-50",
-        day_range_middle: "aria-selected:bg-accent aria-selected:text-accent-foreground",
+          "day-outside text-gray-600 opacity-50 aria-selected:bg-gray-700/50 aria-selected:text-gray-500 aria-selected:opacity-30",
+        day_disabled: "text-gray-600 opacity-50",
+        day_range_middle: "aria-selected:bg-gray-700 aria-selected:text-gray-300",
         day_hidden: "invisible",
         ...classNames,
       }}
       components={{
-        IconLeft: ({ ...props }) => <ChevronLeft className="h-4 w-4" />,
-        IconRight: ({ ...props }) => <ChevronRight className="h-4 w-4" />,
+        IconLeft: ({ ...props }) => <ChevronLeft className="h-4 w-4 text-gray-400" />,
+        IconRight: ({ ...props }) => <ChevronRight className="h-4 w-4 text-gray-400" />,
       }}
       {...props}
     />
