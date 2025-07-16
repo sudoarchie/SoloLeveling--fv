@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+import { AlertTriangle } from "lucide-react" // Import AlertTriangle here
 
 import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
@@ -11,7 +12,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Progress } from "@/components/ui/progress"
-import { Badge } from "@/components/ui/badge"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -20,16 +20,14 @@ import {
   Zap,
   Target,
   Brain,
-  Dumbbell,
   Clock,
-  TrendingUp,
-  Flame,
   Volume2,
   VolumeX,
   Crown,
   Star,
   Sword,
   BarChart3,
+  Activity,
 } from "lucide-react"
 import { format, differenceInDays } from "date-fns"
 import { useSoundEffects } from "../hooks/useSoundEffects"
@@ -37,6 +35,7 @@ import SubmissionPopup from "../components/SubmissionPopup"
 import TargetSettings from "../components/TargetSettings"
 import ProgressCharts from "../components/ProgressCharts"
 import ExamDateSettings from "../components/ExamDateSettings"
+import AdvancedAnalytics from "../components/AdvancedAnalytics"
 
 interface DailyReport {
   date: Date
@@ -565,14 +564,18 @@ export default function GATETracker() {
         </header>
 
         <Tabs defaultValue="tracker" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 bg-gray-800 border-gray-700">
+          <TabsList className="grid w-full grid-cols-3 bg-gray-800 border-gray-700">
             <TabsTrigger value="tracker" className="data-[state=active]:bg-cyan-600">
               <Target className="w-4 h-4 mr-2" />
               Hunter Tracker
             </TabsTrigger>
             <TabsTrigger value="analytics" className="data-[state=active]:bg-cyan-600">
               <BarChart3 className="w-4 h-4 mr-2" />
-              Progress Analytics
+              Progress Charts
+            </TabsTrigger>
+            <TabsTrigger value="advanced" className="data-[state=active]:bg-cyan-600">
+              <Activity className="w-4 h-4 mr-2" />
+              Advanced Analytics
             </TabsTrigger>
           </TabsList>
 
@@ -601,14 +604,14 @@ export default function GATETracker() {
                           <PopoverTrigger asChild>
                             <Button
                               variant="outline"
-                              className="w-full justify-start text-left font-normal bg-gray-800 border-gray-600 hover:bg-gray-700"
+                              className="w-full justify-start text-left font-normal bg-gray-800 border-gray-600 hover:bg-gray-700 text-gray-200"
                               onClick={handleButtonClick}
                             >
                               <CalendarIcon className="mr-2 h-4 w-4" />
                               {selectedDate ? format(selectedDate, "PPP") : "Pick a date"}
                             </Button>
                           </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0 bg-gray-800 border-gray-600">
+                          <PopoverContent className="w-auto p-0 bg-gray-800 border-gray-600" align="start">
                             <Calendar
                               mode="single"
                               selected={selectedDate}
@@ -619,7 +622,6 @@ export default function GATETracker() {
                                 }
                               }}
                               initialFocus
-                              className="bg-gray-800"
                             />
                           </PopoverContent>
                         </Popover>
@@ -633,437 +635,339 @@ export default function GATETracker() {
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                           <div className="space-y-2">
-                            <Label className="text-gray-300 font-medium">
-                              Lectures Completed (+100 each) - Target: {dailyTargets.lecturesCompleted}
+                            <Label htmlFor="lectures" className="text-gray-300">
+                              Lectures Completed
                             </Label>
                             <Input
+                              id="lectures"
                               type="number"
-                              min="0"
-                              max="10"
                               value={formData.lecturesCompleted}
                               onChange={(e) =>
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  lecturesCompleted: Number.parseInt(e.target.value) || 0,
-                                }))
+                                setFormData({ ...formData, lecturesCompleted: Number.parseInt(e.target.value) || 0 })
                               }
-                              onFocus={handleButtonClick}
-                              className="bg-gray-800 border-gray-600 focus:border-green-400"
+                              className="bg-gray-800 border-gray-600 text-gray-200 focus:ring-cyan-500"
+                              onClick={handleButtonClick}
                             />
+                            <p
+                              className={`text-sm ${getTargetProgress(formData.lecturesCompleted, dailyTargets.lecturesCompleted)}`}
+                            >
+                              Target: {dailyTargets.lecturesCompleted}
+                            </p>
                           </div>
-                          <div className="space-y-2">
-                            <Label className="text-gray-300 font-medium">
-                              Old Topics Revised (5+ for +200) - Target: {dailyTargets.oldTopicsRevised}
+                          <div className="space-y-2 flex items-center justify-between p-2 rounded-md bg-gray-800 border border-gray-700">
+                            <Label htmlFor="postLectureRevision" className="text-gray-300">
+                              Post-Lecture Revision
                             </Label>
-                            <Input
-                              type="number"
-                              min="0"
-                              max="20"
-                              value={formData.oldTopicsRevised}
-                              onChange={(e) =>
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  oldTopicsRevised: Number.parseInt(e.target.value) || 0,
-                                }))
-                              }
-                              onFocus={handleButtonClick}
-                              className="bg-gray-800 border-gray-600 focus:border-green-400"
+                            <Switch
+                              id="postLectureRevision"
+                              checked={formData.postLectureRevision}
+                              onCheckedChange={(checked) => {
+                                setFormData({ ...formData, postLectureRevision: checked })
+                                handleToggleSwitch()
+                              }}
+                              className="data-[state=checked]:bg-cyan-600"
                             />
                           </div>
                         </div>
 
-                        <div className="space-y-2 mb-4">
-                          <Label className="text-gray-300 font-medium">
-                            Question Practice Hours (1+ for +150) - Target: {dailyTargets.questionPracticeHours}h
-                          </Label>
-                          <Input
-                            type="number"
-                            min="0"
-                            max="12"
-                            step="0.5"
-                            value={formData.questionPracticeHours}
-                            onChange={(e) =>
-                              setFormData((prev) => ({
-                                ...prev,
-                                questionPracticeHours: Number.parseFloat(e.target.value) || 0,
-                              }))
-                            }
-                            onFocus={handleButtonClick}
-                            className="bg-gray-800 border-gray-600 focus:border-green-400"
-                          />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="oldTopicsRevised" className="text-gray-300">
+                              Old Topics Revised
+                            </Label>
+                            <Input
+                              id="oldTopicsRevised"
+                              type="number"
+                              value={formData.oldTopicsRevised}
+                              onChange={(e) =>
+                                setFormData({ ...formData, oldTopicsRevised: Number.parseInt(e.target.value) || 0 })
+                              }
+                              className="bg-gray-800 border-gray-600 text-gray-200 focus:ring-cyan-500"
+                              onClick={handleButtonClick}
+                            />
+                            <p
+                              className={`text-sm ${getTargetProgress(formData.oldTopicsRevised, dailyTargets.oldTopicsRevised)}`}
+                            >
+                              Target: {dailyTargets.oldTopicsRevised}
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="questionPracticeHours" className="text-gray-300">
+                              Question Practice (Hours)
+                            </Label>
+                            <Input
+                              id="questionPracticeHours"
+                              type="number"
+                              step="0.1"
+                              value={formData.questionPracticeHours}
+                              onChange={(e) =>
+                                setFormData({
+                                  ...formData,
+                                  questionPracticeHours: Number.parseFloat(e.target.value) || 0,
+                                })
+                              }
+                              className="bg-gray-800 border-gray-600 text-gray-200 focus:ring-cyan-500"
+                              onClick={handleButtonClick}
+                            />
+                            <p
+                              className={`text-sm ${getTargetProgress(formData.questionPracticeHours, dailyTargets.questionPracticeHours)}`}
+                            >
+                              Target: {dailyTargets.questionPracticeHours}h
+                            </p>
+                          </div>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                            <div className="flex items-center space-x-2">
-                              <Brain className="w-4 h-4 text-green-400" />
-                              <Label className="text-gray-300 text-sm">Post-Lecture Revision (+150)</Label>
-                            </div>
+                          <div className="space-y-2 flex items-center justify-between p-2 rounded-md bg-gray-800 border border-gray-700">
+                            <Label htmlFor="morningSession" className="text-gray-300">
+                              Morning Session (before 9 AM)
+                            </Label>
                             <Switch
-                              checked={formData.postLectureRevision}
-                              onCheckedChange={(checked) => {
-                                setFormData((prev) => ({ ...prev, postLectureRevision: checked }))
-                                handleToggleSwitch()
-                              }}
-                            />
-                          </div>
-                          <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                            <div className="flex items-center space-x-2">
-                              <Clock className="w-4 h-4 text-green-400" />
-                              <Label className="text-gray-300 text-sm">Morning Session (+100)</Label>
-                            </div>
-                            <Switch
+                              id="morningSession"
                               checked={formData.morningSession}
                               onCheckedChange={(checked) => {
-                                setFormData((prev) => ({ ...prev, morningSession: checked }))
+                                setFormData({ ...formData, morningSession: checked })
                                 handleToggleSwitch()
                               }}
+                              className="data-[state=checked]:bg-cyan-600"
                             />
                           </div>
-                          <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                            <div className="flex items-center space-x-2">
-                              <Dumbbell className="w-4 h-4 text-green-400" />
-                              <Label className="text-gray-300 text-sm">Exercise Done (+100)</Label>
-                            </div>
+                          <div className="space-y-2 flex items-center justify-between p-2 rounded-md bg-gray-800 border border-gray-700">
+                            <Label htmlFor="exerciseDone" className="text-gray-300">
+                              Exercise Done
+                            </Label>
                             <Switch
+                              id="exerciseDone"
                               checked={formData.exerciseDone}
                               onCheckedChange={(checked) => {
-                                setFormData((prev) => ({ ...prev, exerciseDone: checked }))
+                                setFormData({ ...formData, exerciseDone: checked })
                                 handleToggleSwitch()
                               }}
-                            />
-                          </div>
-                          <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                            <div className="flex items-center space-x-2">
-                              <Target className="w-4 h-4 text-green-400" />
-                              <Label className="text-gray-300 text-sm">Goal Visualization (+50)</Label>
-                            </div>
-                            <Switch
-                              checked={formData.goalVisualization}
-                              onCheckedChange={(checked) => {
-                                setFormData((prev) => ({ ...prev, goalVisualization: checked }))
-                                handleToggleSwitch()
-                              }}
+                              className="data-[state=checked]:bg-cyan-600"
                             />
                           </div>
                         </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label className="text-gray-300 font-medium">Distractions Level</Label>
-                        <Select
-                          value={formData.distractionsLevel}
-                          onValueChange={(value) => {
-                            setFormData((prev) => ({ ...prev, distractionsLevel: value }))
-                            handleButtonClick()
-                          }}
-                        >
-                          <SelectTrigger className="bg-gray-800 border-gray-600">
-                            <SelectValue placeholder="Select distraction level" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-gray-800 border-gray-600">
-                            <SelectItem value="None" className="text-green-400">
-                              None (+150)
-                            </SelectItem>
-                            <SelectItem value="Low" className="text-yellow-400">
-                              Low (-50)
-                            </SelectItem>
-                            <SelectItem value="Medium" className="text-orange-400">
-                              Medium (-100)
-                            </SelectItem>
-                            <SelectItem value="High" className="text-red-400">
-                              High (-200)
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <div className="space-y-2 flex items-center justify-between p-2 rounded-md bg-gray-800 border border-gray-700 mt-4">
+                          <Label htmlFor="goalVisualization" className="text-gray-300">
+                            Goal Visualization
+                          </Label>
+                          <Switch
+                            id="goalVisualization"
+                            checked={formData.goalVisualization}
+                            onCheckedChange={(checked) => {
+                              setFormData({ ...formData, goalVisualization: checked })
+                              handleToggleSwitch()
+                            }}
+                            className="data-[state=checked]:bg-cyan-600"
+                          />
+                        </div>
                       </div>
 
                       <div className="bg-red-900/20 border border-red-700/50 rounded-lg p-4">
                         <h3 className="text-lg font-semibold text-red-400 mb-4 flex items-center">
-                          <Flame className="w-5 h-5 mr-2" />
-                          EXP Penalties
+                          <AlertTriangle className="w-5 h-5 mr-2" />
+                          EXP Draining Activities
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                            <Label className="text-gray-300 text-sm">Missed Lecture (-100)</Label>
+                          <div className="space-y-2 flex items-center justify-between p-2 rounded-md bg-gray-800 border border-gray-700">
+                            <Label htmlFor="missedLecture" className="text-gray-300">
+                              Missed Lecture
+                            </Label>
                             <Switch
+                              id="missedLecture"
                               checked={formData.missedLecture}
                               onCheckedChange={(checked) => {
-                                setFormData((prev) => ({ ...prev, missedLecture: checked }))
+                                setFormData({ ...formData, missedLecture: checked })
                                 handleToggleSwitch()
                               }}
+                              className="data-[state=checked]:bg-red-600"
                             />
                           </div>
-                          <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                            <Label className="text-gray-300 text-sm">No Revision (-150)</Label>
+                          <div className="space-y-2 flex items-center justify-between p-2 rounded-md bg-gray-800 border border-gray-700">
+                            <Label htmlFor="noRevision" className="text-gray-300">
+                              No Revision
+                            </Label>
                             <Switch
+                              id="noRevision"
                               checked={formData.noRevision}
                               onCheckedChange={(checked) => {
-                                setFormData((prev) => ({ ...prev, noRevision: checked }))
+                                setFormData({ ...formData, noRevision: checked })
                                 handleToggleSwitch()
                               }}
+                              className="data-[state=checked]:bg-red-600"
                             />
                           </div>
-                          <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                            <Label className="text-gray-300 text-sm">No Question Practice (-150)</Label>
+                          <div className="space-y-2 flex items-center justify-between p-2 rounded-md bg-gray-800 border border-gray-700">
+                            <Label htmlFor="noQuestionPractice" className="text-gray-300">
+                              No Question Practice
+                            </Label>
                             <Switch
+                              id="noQuestionPractice"
                               checked={formData.noQuestionPractice}
                               onCheckedChange={(checked) => {
-                                setFormData((prev) => ({ ...prev, noQuestionPractice: checked }))
+                                setFormData({ ...formData, noQuestionPractice: checked })
                                 handleToggleSwitch()
                               }}
+                              className="data-[state=checked]:bg-red-600"
                             />
                           </div>
-                          <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                            <Label className="text-gray-300 text-sm">Oversleeping (-100)</Label>
+                          <div className="space-y-2 flex items-center justify-between p-2 rounded-md bg-gray-800 border border-gray-700">
+                            <Label htmlFor="oversleeping" className="text-gray-300">
+                              Oversleeping
+                            </Label>
                             <Switch
+                              id="oversleeping"
                               checked={formData.oversleeping}
                               onCheckedChange={(checked) => {
-                                setFormData((prev) => ({ ...prev, oversleeping: checked }))
+                                setFormData({ ...formData, oversleeping: checked })
                                 handleToggleSwitch()
                               }}
+                              className="data-[state=checked]:bg-red-600"
                             />
                           </div>
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label className="text-gray-300 font-medium">Mental State</Label>
-                        <Input
-                          value={formData.mentalState}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, mentalState: e.target.value }))}
-                          onFocus={handleButtonClick}
-                          placeholder="How are you feeling today?"
-                          className="bg-gray-800 border-gray-600 focus:border-cyan-400"
-                        />
-                      </div>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="distractionsLevel" className="text-gray-300">
+                            Distractions Level
+                          </Label>
+                          <Select
+                            value={formData.distractionsLevel}
+                            onValueChange={(value) => {
+                              setFormData({ ...formData, distractionsLevel: value })
+                              handleButtonClick()
+                            }}
+                          >
+                            <SelectTrigger className="w-full bg-gray-800 border-gray-600 text-gray-200 focus:ring-cyan-500">
+                              <SelectValue placeholder="Select distraction level" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-gray-800 border-gray-600 text-gray-200">
+                              <SelectItem value="None">None</SelectItem>
+                              <SelectItem value="Low">Low</SelectItem>
+                              <SelectItem value="Medium">Medium</SelectItem>
+                              <SelectItem value="High">High</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
 
-                      <div className="space-y-2">
-                        <Label className="text-gray-300 font-medium">Final Comment</Label>
-                        <Textarea
-                          value={formData.finalComment}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, finalComment: e.target.value }))}
-                          onFocus={handleButtonClick}
-                          placeholder="Any additional thoughts or reflections..."
-                          className="bg-gray-800 border-gray-600 focus:border-cyan-400 min-h-[100px]"
-                        />
+                        <div className="space-y-2">
+                          <Label htmlFor="mentalState" className="text-gray-300">
+                            Mental State
+                          </Label>
+                          <Input
+                            id="mentalState"
+                            value={formData.mentalState}
+                            onChange={(e) => setFormData({ ...formData, mentalState: e.target.value })}
+                            placeholder="e.g., Focused, Tired, Motivated"
+                            className="bg-gray-800 border-gray-600 text-gray-200 focus:ring-cyan-500"
+                            onClick={handleButtonClick}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="finalComment" className="text-gray-300">
+                            Final Comment
+                          </Label>
+                          <Textarea
+                            id="finalComment"
+                            value={formData.finalComment}
+                            onChange={(e) => setFormData({ ...formData, finalComment: e.target.value })}
+                            placeholder="Any additional notes or reflections for today?"
+                            className="bg-gray-800 border-gray-600 text-gray-200 focus:ring-cyan-500"
+                            rows={3}
+                            onClick={handleButtonClick}
+                          />
+                        </div>
                       </div>
 
                       <Button
                         type="submit"
-                        className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-bold py-3 text-lg"
+                        className="w-full bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-700 hover:to-blue-800 text-white font-bold py-3 rounded-lg shadow-lg transition-all duration-300 transform hover:scale-105"
                         onClick={handleButtonClick}
                       >
-                        <Zap className="w-5 h-5 mr-2" />
-                        Submit Hunter Report
+                        Submit Daily Report
                       </Button>
                     </form>
                   </CardContent>
                 </Card>
               </div>
 
-              <div className="space-y-6">
+              <div className="space-y-8">
                 <Card className="bg-gray-900/50 border-gray-700 backdrop-blur-sm">
                   <CardHeader className="border-b border-gray-700">
-                    <CardTitle className="text-xl font-bold text-cyan-400 flex items-center justify-between">
-                      <div className="flex items-center">
-                        <Crown className="w-5 h-5 mr-2" />
-                        Hunter Status
-                      </div>
-                      <ExamDateSettings
-                        examDate={examDate}
-                        onExamDateChange={setExamDate}
-                        onSoundClick={handleButtonClick}
-                      />
+                    <CardTitle className="text-2xl font-bold text-purple-400 flex items-center">
+                      <Crown className="w-6 h-6 mr-2" />
+                      Hunter Rank
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="p-6">
-                    <div className="text-center mb-6">
-                      <div
-                        className="w-24 h-24 rounded-full flex items-center justify-center text-3xl font-bold border-4 mx-auto mb-4 relative"
-                        style={{
-                          backgroundColor: currentRank.color,
-                          borderColor: currentRank.glowColor,
-                          boxShadow: `0 0 20px ${currentRank.glowColor}40`,
-                        }}
-                      >
-                        {currentRank.name}
-                        <div
-                          className="absolute inset-0 rounded-full animate-pulse border-2"
-                          style={{ borderColor: currentRank.glowColor }}
-                        ></div>
-                      </div>
-                      <Badge
-                        className="text-white font-bold mb-2"
-                        style={{
-                          backgroundColor: currentRank.color,
-                          boxShadow: `0 0 10px ${currentRank.glowColor}40`,
-                        }}
-                      >
-                        {currentRank.fullName}
-                      </Badge>
-                      <p className="text-gray-400 text-sm mb-2">{currentRank.meaning}</p>
-                      <p className="text-purple-400 italic text-sm">"{currentRank.mentalState}"</p>
+                  <CardContent className="p-6 text-center">
+                    <div
+                      className="w-32 h-32 rounded-full flex items-center justify-center text-6xl font-bold border-8 mx-auto mb-4 relative"
+                      style={{
+                        backgroundColor: currentRank.color,
+                        borderColor: currentRank.glowColor,
+                        boxShadow: `0 0 30px ${currentRank.glowColor}`,
+                      }}
+                    >
+                      {currentRank.name}
                     </div>
-
-                    <div className="space-y-4">
-                      <div>
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-gray-300 text-sm">EXP Progress</span>
-                          <span className="text-cyan-400 font-mono text-sm">
-                            {currentExp.toLocaleString()} / {currentRank.maxExp.toLocaleString()}
-                          </span>
-                        </div>
-                        <Progress value={getExpProgress()} className="h-3 bg-gray-700" />
-                      </div>
-
-                      <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-                        <h4 className="text-sm font-semibold text-gray-300 mb-2">GATE Interpretation</h4>
-                        <p className="text-xs text-gray-400">{currentRank.gateInterpretation}</p>
-                      </div>
-
-                      {getNextRank() && (
-                        <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-                          <h4 className="text-sm font-semibold text-gray-300 mb-2">Next Rank Goal</h4>
-                          <div className="flex items-center space-x-3">
-                            <div
-                              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2"
-                              style={{
-                                backgroundColor: getNextRank()!.color,
-                                borderColor: getNextRank()!.glowColor,
-                                boxShadow: `0 0 10px ${getNextRank()!.glowColor}40`,
-                              }}
-                            >
-                              {getNextRank()!.name}
-                            </div>
-                            <div>
-                              <p className="text-gray-200 text-sm font-medium">{getNextRank()!.fullName}</p>
-                              <p className="text-xs text-gray-400">
-                                {(getNextRank()!.minExp - currentExp).toLocaleString()} EXP needed
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                    <h3 className="text-3xl font-bold text-white mb-2">{currentRank.fullName}</h3>
+                    <p className="text-gray-400 text-lg mb-4">{currentRank.meaning}</p>
+                    <div className="text-left mb-4">
+                      <p className="text-gray-300 text-sm">
+                        <span className="font-semibold">GATE Interpretation:</span> {currentRank.gateInterpretation}
+                      </p>
+                      <p className="text-gray-300 text-sm mt-1">
+                        <span className="font-semibold">Mental State:</span> {currentRank.mentalState}
+                      </p>
                     </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="bg-gray-900/50 border-gray-700 backdrop-blur-sm">
-                  <CardHeader>
-                    <CardTitle className="text-lg font-bold text-gray-300 flex items-center">
-                      <TrendingUp className="w-5 h-5 mr-2 text-cyan-400" />
-                      Activity Summary
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-6">
-                    {dailyReports.length > 0 ? (
-                      <div className="space-y-4">
-                        <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-                          <h4 className="text-sm font-semibold text-gray-300 mb-3">Last 7 Days Average</h4>
-                          <div className="space-y-2">
-                            <div className="flex justify-between items-center">
-                              <span className="text-gray-400 text-sm">Lectures/Day:</span>
-                              <span
-                                className={`font-mono text-sm ${getTargetProgress(
-                                  dailyReports.slice(0, 7).reduce((sum, report) => sum + report.lecturesCompleted, 0) /
-                                    Math.min(7, dailyReports.length),
-                                  dailyTargets.lecturesCompleted,
-                                )}`}
-                              >
-                                {(
-                                  dailyReports.slice(0, 7).reduce((sum, report) => sum + report.lecturesCompleted, 0) /
-                                  Math.min(7, dailyReports.length)
-                                ).toFixed(1)}
-                                /{dailyTargets.lecturesCompleted}
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-gray-400 text-sm">Topics/Day:</span>
-                              <span
-                                className={`font-mono text-sm ${getTargetProgress(
-                                  dailyReports.slice(0, 7).reduce((sum, report) => sum + report.oldTopicsRevised, 0) /
-                                    Math.min(7, dailyReports.length),
-                                  dailyTargets.oldTopicsRevised,
-                                )}`}
-                              >
-                                {(
-                                  dailyReports.slice(0, 7).reduce((sum, report) => sum + report.oldTopicsRevised, 0) /
-                                  Math.min(7, dailyReports.length)
-                                ).toFixed(1)}
-                                /{dailyTargets.oldTopicsRevised}
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-gray-400 text-sm">Hours/Day:</span>
-                              <span
-                                className={`font-mono text-sm ${getTargetProgress(
-                                  dailyReports
-                                    .slice(0, 7)
-                                    .reduce((sum, report) => sum + report.questionPracticeHours, 0) /
-                                    Math.min(7, dailyReports.length),
-                                  dailyTargets.questionPracticeHours,
-                                )}`}
-                              >
-                                {(
-                                  dailyReports
-                                    .slice(0, 7)
-                                    .reduce((sum, report) => sum + report.questionPracticeHours, 0) /
-                                  Math.min(7, dailyReports.length)
-                                ).toFixed(1)}
-                                h/{dailyTargets.questionPracticeHours}h
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-gray-400 text-sm">Avg EXP/Day:</span>
-                              <span className="text-yellow-400 font-mono text-sm">
-                                {calculateAverageExpPerDay().toFixed(1)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-                          <h4 className="text-sm font-semibold text-gray-300 mb-2">Recent Reports</h4>
-                          <div className="space-y-2 max-h-40 overflow-y-auto">
-                            {dailyReports.slice(0, 5).map((report, index) => (
-                              <div key={index} className="flex justify-between items-center text-xs">
-                                <span className="text-gray-400">{format(report.date, "MM/dd")}</span>
-                                <span
-                                  className={`font-mono ${report.expGained >= 0 ? "text-green-400" : "text-red-400"}`}
-                                >
-                                  {report.expGained >= 0 ? "+" : ""}
-                                  {report.expGained}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center text-gray-500">
-                        <p>Submit your first report to see activity summary!</p>
-                      </div>
+                    <div className="flex items-center justify-between text-lg font-semibold text-gray-300 mb-2">
+                      <span>EXP:</span>
+                      <span className="text-yellow-400">{currentExp}</span>
+                    </div>
+                    <Progress
+                      value={getExpProgress()}
+                      className="h-3 bg-gray-700"
+                      indicatorClassName="bg-gradient-to-r from-yellow-400 to-orange-500"
+                    />
+                    {getNextRank() && (
+                      <p className="text-sm text-gray-500 mt-2">
+                        {currentRank.maxExp - currentExp} EXP to {getNextRank()?.name}-Rank
+                      </p>
                     )}
                   </CardContent>
                 </Card>
 
                 <Card className="bg-gray-900/50 border-gray-700 backdrop-blur-sm">
-                  <CardHeader>
-                    <CardTitle className="text-lg font-bold text-gray-300">Hunter's Wisdom</CardTitle>
+                  <CardHeader className="border-b border-gray-700">
+                    <CardTitle className="text-2xl font-bold text-orange-400 flex items-center">
+                      <Brain className="w-6 h-6 mr-2" />
+                      Daily Wisdom
+                    </CardTitle>
                   </CardHeader>
                   <CardContent className="p-6">
-                    <blockquote className="text-center italic text-gray-400 border-l-4 border-cyan-400 pl-4">
-                      "{currentQuote}"
-                    </blockquote>
+                    <p className="text-gray-300 text-lg italic text-center">"{currentQuote}"</p>
                   </CardContent>
                 </Card>
+
+                <ExamDateSettings examDate={examDate} setExamDate={setExamDate} onSoundClick={handleButtonClick} />
               </div>
             </div>
           </TabsContent>
 
           <TabsContent value="analytics" className="mt-6">
-            <ProgressCharts data={getProgressData()} />
+            <ProgressCharts dailyReports={dailyReports} dailyTargets={dailyTargets} />
+          </TabsContent>
+
+          <TabsContent value="advanced" className="mt-6">
+            <AdvancedAnalytics
+              dailyReports={dailyReports}
+              dailyTargets={dailyTargets}
+              currentExp={currentExp}
+              daysRemaining={daysRemaining}
+            />
           </TabsContent>
         </Tabs>
       </div>
