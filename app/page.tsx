@@ -3,7 +3,7 @@
 import type React from "react"
 import { AlertTriangle } from "lucide-react" // Import AlertTriangle here
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -214,7 +214,6 @@ export default function GATETracker() {
   } | null>(null)
 
   const sounds = useSoundEffects()
-
   const [formData, setFormData] = useState({
     lecturesCompleted: 0,
     postLectureRevision: false,
@@ -481,8 +480,274 @@ export default function GATETracker() {
     return currentIndex < ranks.length - 1 ? ranks[currentIndex + 1] : null
   }, [currentRank])
 
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+
+    // Set canvas size
+    const resizeCanvas = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // Magical energy particles
+    const particles = [];
+    const maxParticles = 80;
+
+    class MagicalParticle {
+      constructor() {
+        this.x = Math.random() * canvas.width;
+        this.y = Math.random() * canvas.height;
+        this.vx = (Math.random() - 0.5) * 0.3;
+        this.vy = (Math.random() - 0.5) * 0.3;
+        this.life = Math.random() * 200 + 100;
+        this.maxLife = this.life;
+        this.size = Math.random() * 1.5 + 0.5;
+        this.color = this.getRandomColor();
+        this.glowSize = Math.random() * 10 + 5;
+      }
+
+      getRandomColor() {
+        const colors = [
+          '#8B5CF6', // Purple
+          '#3B82F6', // Blue
+          '#06B6D4', // Cyan
+          '#10B981', // Emerald
+          '#F59E0B', // Amber
+        ];
+        return colors[Math.floor(Math.random() * colors.length)];
+      }
+
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life--;
+
+        // Floating movement
+        this.vx += (Math.random() - 0.5) * 0.01;
+        this.vy += (Math.random() - 0.5) * 0.01;
+
+        // Boundary wrap
+        if (this.x < 0) this.x = canvas.width;
+        if (this.x > canvas.width) this.x = 0;
+        if (this.y < 0) this.y = canvas.height;
+        if (this.y > canvas.height) this.y = 0;
+
+        if (this.life <= 0) {
+          this.x = Math.random() * canvas.width;
+          this.y = Math.random() * canvas.height;
+          this.life = this.maxLife;
+          this.color = this.getRandomColor();
+        }
+      }
+
+      draw() {
+        const alpha = this.life / this.maxLife;
+
+        // Glow effect
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.3;
+        ctx.fillStyle = this.color;
+        ctx.shadowBlur = this.glowSize;
+        ctx.shadowColor = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Core particle
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // Initialize particles
+    for (let i = 0; i < maxParticles; i++) {
+      particles.push(new MagicalParticle());
+    }
+
+    // System interface elements
+    const systemElements = [];
+    const createSystemElement = () => {
+      const element = {
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        width: Math.random() * 200 + 100,
+        height: Math.random() * 80 + 40,
+        alpha: 0,
+        targetAlpha: Math.random() * 0.3 + 0.1,
+        life: Math.random() * 300 + 200,
+        maxLife: 500,
+        type: Math.random() > 0.5 ? 'window' : 'progress'
+      };
+      return element;
+    };
+
+    // Create initial system elements
+    for (let i = 0; i < 5; i++) {
+      systemElements.push(createSystemElement());
+    }
+
+    // Draw system interface windows
+    const drawSystemElement = (element) => {
+      ctx.save();
+      ctx.globalAlpha = element.alpha;
+
+      if (element.type === 'window') {
+        // Window frame
+        ctx.strokeStyle = '#8B5CF6';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(element.x, element.y, element.width, element.height);
+
+        // Window background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(element.x, element.y, element.width, element.height);
+
+        // Window title bar
+        ctx.fillStyle = 'rgba(139, 92, 246, 0.3)';
+        ctx.fillRect(element.x, element.y, element.width, 25);
+
+        // Window lines
+        for (let i = 0; i < 3; i++) {
+          ctx.strokeStyle = '#8B5CF6';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(element.x + 10, element.y + 35 + i * 12);
+          ctx.lineTo(element.x + element.width - 10, element.y + 35 + i * 12);
+          ctx.stroke();
+        }
+      } else {
+        // Progress bar
+        ctx.strokeStyle = '#10B981';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(element.x, element.y, element.width, 20);
+
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.3)';
+        const progress = (element.life / element.maxLife) * element.width;
+        ctx.fillRect(element.x, element.y, progress, 20);
+      }
+
+      ctx.restore();
+    };
+
+    // Digital rain effect
+    const rainDrops = [];
+    const createRainDrop = () => {
+      return {
+        x: Math.random() * canvas.width,
+        y: -20,
+        speed: Math.random() * 3 + 2,
+        char: String.fromCharCode(Math.random() * 26 + 65),
+        alpha: Math.random() * 0.5 + 0.3
+      };
+    };
+
+    for (let i = 0; i < 30; i++) {
+      rainDrops.push(createRainDrop());
+    }
+
+    let time = 0;
+    const animate = () => {
+      time++;
+
+      // Dark gradient background
+      const gradient = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 0, canvas.width / 2, canvas.height / 2, canvas.width / 2);
+      gradient.addColorStop(0, 'rgba(15, 15, 30, 0.95)');
+      gradient.addColorStop(0.5, 'rgba(8, 8, 20, 0.98)');
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 1)');
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Update and draw magical particles
+      particles.forEach(particle => {
+        particle.update();
+        particle.draw();
+      });
+
+      // Update and draw system elements
+      systemElements.forEach((element, index) => {
+        element.life--;
+
+        if (element.alpha < element.targetAlpha) {
+          element.alpha += 0.01;
+        }
+
+        if (element.life <= 0) {
+          systemElements[index] = createSystemElement();
+        }
+
+        drawSystemElement(element);
+      });
+
+      // Digital rain
+      rainDrops.forEach((drop, index) => {
+        drop.y += drop.speed;
+
+        if (drop.y > canvas.height) {
+          rainDrops[index] = createRainDrop();
+        }
+
+        ctx.save();
+        ctx.globalAlpha = drop.alpha;
+        ctx.fillStyle = '#8B5CF6';
+        ctx.font = '12px monospace';
+        ctx.fillText(drop.char, drop.x, drop.y);
+        ctx.restore();
+      });
+
+      // Pulsing energy waves
+      if (time % 180 === 0) {
+        const waveX = Math.random() * canvas.width;
+        const waveY = Math.random() * canvas.height;
+
+        for (let i = 0; i < 30; i++) {
+          setTimeout(() => {
+            ctx.save();
+            ctx.globalAlpha = 0.1;
+            ctx.strokeStyle = '#8B5CF6';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(waveX, waveY, i * 10, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }, i * 20);
+        }
+      }
+
+      requestAnimationFrame(animate);
+    };
+
+    animate();
+
+    return () => {
+      window.removeEventListener('resize', resizeCanvas);
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 text-white">
+
+      {/* Main canvas */}
+      <canvas
+        ref={canvasRef}
+        className=" inset-0 w-full h-full fixed"
+      />
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="energy-stream stream-1"></div>
+        <div className="energy-stream stream-2"></div>
+        <div className="energy-stream stream-3"></div>
+      </div>
       {lastSubmissionData && (
         <SubmissionPopup
           isOpen={showSubmissionPopup}
@@ -975,3 +1240,4 @@ export default function GATETracker() {
     </div>
   )
 }
+
