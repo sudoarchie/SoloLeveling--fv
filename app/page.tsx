@@ -36,6 +36,8 @@ import TargetSettings from "../components/TargetSettings"
 import ProgressCharts from "../components/ProgressCharts"
 import ExamDateSettings from "../components/ExamDateSettings"
 import AdvancedAnalytics from "../components/AdvancedAnalytics"
+import PomodoroTimer from "../components/PomodoroTimer"
+import GamificationStats from "../components/GamificationStats"
 
 interface DailyReport {
   date: Date
@@ -212,6 +214,9 @@ export default function GATETracker() {
     averageExpPerDay: number
     daysToNextRank: number | null
   } | null>(null)
+  const [perfectDays, setPerfectDays] = useState(0)
+  const [bestStreak, setBestStreak] = useState(0)
+  const [variableRewards, setVariableRewards] = useState<number[]>([])
 
   const sounds = useSoundEffects()
   const [formData, setFormData] = useState({
@@ -413,6 +418,34 @@ export default function GATETracker() {
       console.log("Updated daily reports:", updated)
       return updated
     })
+
+    // Track perfect days (all targets met)
+    const isPerfectDay = formData.lecturesCompleted >= dailyTargets.lecturesCompleted &&
+      formData.oldTopicsRevised >= dailyTargets.oldTopicsRevised &&
+      formData.questionPracticeHours >= dailyTargets.questionPracticeHours &&
+      formData.distractionsLevel === "None"
+    
+    if (isPerfectDay) {
+      setPerfectDays((prev) => prev + 1)
+    }
+
+    // Update best streak
+    const currentStreak = dailyReports.filter((r) => {
+      const reportDate = new Date(r.date)
+      const today = new Date()
+      const diffTime = Math.abs(today.getTime() - reportDate.getTime())
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+      return diffDays <= dailyReports.length
+    }).length
+    
+    if (currentStreak > bestStreak) {
+      setBestStreak(currentStreak)
+    }
+
+    // Variable rewards (random bonus based on psychology)
+    if (Math.random() < 0.3) { // 30% chance for variable reward
+      setVariableRewards((prev) => [...prev, Math.floor(Math.random() * 50) + 10])
+    }
 
     const updatedReportsForAvg = [newReport, ...dailyReports.slice(0, 29)]
     const totalExpForAvg = updatedReportsForAvg.reduce((sum, report) => sum + report.expGained, 0)
@@ -827,6 +860,28 @@ export default function GATETracker() {
           </div>
           <p className="text-gray-400 mt-2 text-lg font-medium">Rank Up Daily. No Mercy.</p>
         </header>
+
+        {/* Gamification Stats Section */}
+        <div className="mb-8">
+          <GamificationStats
+            streak={dailyReports.filter((r) => {
+              const reportDate = new Date(r.date)
+              const today = new Date()
+              const diffTime = Math.abs(today.getTime() - reportDate.getTime())
+              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+              return diffDays <= dailyReports.length
+            }).length}
+            totalExp={currentExp}
+            perfectDays={perfectDays}
+            bestStreak={bestStreak}
+            variableRewards={variableRewards}
+          />
+        </div>
+
+        {/* Pomodoro Timer */}
+        <div className="mb-8">
+          <PomodoroTimer />
+        </div>
 
         <Tabs defaultValue="tracker" className="w-full">
           <TabsList className="grid w-full grid-cols-3 bg-gray-800 border-gray-700">
