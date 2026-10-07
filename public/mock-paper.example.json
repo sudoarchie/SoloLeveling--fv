@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "paper": {
+    "source_key": "example-cs-2025",
+    "title": "Example practice paper (synthetic)",
+    "exam": "GATE",
+    "year": 2025,
+    "subject": "Computer Science",
+    "duration_minutes": 30,
+    "source_url": null,
+    "metadata": { "session": "example", "is_synthetic": true }
+  },
+  "questions": [
+    {
+      "question_number": 1,
+      "question_type": "mcq",
+      "question_text": "Which data structure follows the first-in, first-out principle?",
+      "images": [],
+      "options": [
+        { "id": "A", "text": "Stack", "images": [] },
+        { "id": "B", "text": "Queue", "images": [] },
+        { "id": "C", "text": "Heap", "images": [] },
+        { "id": "D", "text": "Tree", "images": [] }
+      ],
+      "correct_option_ids": ["B"],
+      "marks": 1,
+      "negative_marks": 0.333,
+      "explanation": "A queue removes items in the order they were inserted.",
+      "metadata": { "topic": "Data structures", "difficulty": "easy", "page": 1 }
+    },
+    {
+      "question_number": 2,
+      "question_type": "msq",
+      "question_text": "Which of these numbers are prime?",
+      "options": [
+        { "id": "A", "text": "2" },
+        { "id": "B", "text": "4" },
+        { "id": "C", "text": "5" },
+        { "id": "D", "text": "9" }
+      ],
+      "correct_option_ids": ["A", "C"],
+      "marks": 2,
+      "negative_marks": 0,
+      "metadata": { "topic": "Mathematics", "page": 1 }
+    },
+    {
+      "question_number": 3,
+      "question_type": "nat",
+      "question_text": "How many edges are in a tree with 8 vertices?",
+      "options": [],
+      "correct_option_ids": [],
+      "answer_min": 7,
+      "answer_max": 7,
+      "marks": 2,
+      "negative_marks": 0,
+      "explanation": "A tree with n vertices has n − 1 edges.",
+      "metadata": { "topic": "Graph theory", "page": 2 }
+    }
+  ]
+}

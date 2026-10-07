@@ -27,6 +27,9 @@ const isPublicRoute = createRouteMatcher([
  * non-public routes by redirecting unauthenticated users to /signin.
  */
 export async function middleware(request: NextRequest) {
+  // The admin API validates its own Bearer key before parsing any request body.
+  if (request.nextUrl.pathname.startsWith("/api/admin/")) return NextResponse.next()
+
   let supabaseResponse = NextResponse.next({
     request,
   })

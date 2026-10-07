@@ -51,6 +51,7 @@ import {
   LayoutDashboard,
   LogOut,
   GraduationCap,
+  FileQuestion,
 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -83,6 +84,7 @@ import { ActivityHeatmap } from "@/components/ActivityHeatmap"
 import { CommandConsole } from "@/components/CommandConsole"
 import { ChangePasswordSettings } from "@/components/ChangePasswordSettings"
 import { MockTestInput } from "@/components/MockTestInput"
+import { MockQuestionBank } from "@/components/MockQuestionBank"
 import { ReviewSchedule } from "@/components/ReviewSchedule"
 import SubmissionPopup, { type LootDrop } from "@/components/SubmissionPopup"
 import { useUserData, type DailyReport } from "@/hooks/useUserData"
@@ -609,6 +611,10 @@ export default function GATETracker() {
       title: "Small steps. Real growth.",
       description: "See how your preparation is coming together.",
     },
+    mocks: {
+      title: "Find your next practice paper.",
+      description: "Choose an exam and explore questions, diagrams, and answers.",
+    },
   }
 
   return (
@@ -657,19 +663,20 @@ export default function GATETracker() {
           </p>
           <TabsList
             aria-label="Workspace navigation"
-            className="grid h-auto w-full grid-cols-3 gap-1 bg-transparent p-0 lg:flex lg:flex-col lg:items-stretch"
+            className="grid h-auto w-full grid-cols-4 gap-1 bg-transparent p-0 lg:flex lg:flex-col lg:items-stretch"
           >
             {[
               { value: "today", label: "Today", icon: LayoutDashboard },
               { value: "reviews", label: "Reviews", icon: BookOpen },
+              { value: "mocks", label: "Mock tests", icon: FileQuestion },
               { value: "progress", label: "Progress", icon: BarChart3 },
             ].map(({ value, label, icon: Icon }) => (
               <TabsTrigger
                 key={value}
                 value={value}
-                className="h-11 gap-2 rounded-lg px-3 text-sm text-muted-foreground data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none lg:justify-start"
+                className="h-11 gap-2 rounded-lg px-2 text-xs text-muted-foreground data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none sm:px-3 sm:text-sm lg:justify-start"
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="hidden h-4 w-4 sm:block" />
                 <span>{label}</span>
                 {value === "reviews" && dueCount > 0 && (
                   <span className="ml-auto hidden rounded-md bg-primary/10 px-1.5 py-0.5 text-xs tabular-nums lg:inline">
@@ -746,7 +753,9 @@ export default function GATETracker() {
               ? "Today"
               : activeView === "reviews"
                 ? "Review schedule"
-                : "Your progress"}
+                : activeView === "mocks"
+                  ? "Mock tests"
+                  : "Your progress"}
           </span>
           <div className="flex items-center gap-2">
             <Button
@@ -870,6 +879,10 @@ export default function GATETracker() {
               completedToday={reviewedToday}
               onCompleteReview={handleChecklistReview}
             />
+          </TabsContent>
+
+          <TabsContent value="mocks" className="mt-0">
+            <MockQuestionBank />
           </TabsContent>
 
           <TabsContent value="progress" className="mt-0 space-y-6">
