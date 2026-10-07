@@ -1,8 +1,10 @@
 "use client"
 import { useState, useEffect } from "react"
-import { Menu, X, User, Settings, LogOut, Command, ArrowRight, Bell, Search } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { Menu, X, User, Settings, LogOut, Command, Bell, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { SignedIn, SignedOut, SignInButton, SignOutButton, SignUpButton, UserButton, useUser } from '@clerk/nextjs'
+import { createClient } from "@/utils/supabase/client"
+import type { User as SupabaseUser } from "@supabase/supabase-js"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,15 +17,29 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 export default function ModernCyberpunkNavbar() {
   const [isOpen, setIsOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
-  const { user } = useUser()
+  const [user, setUser] = useState<SupabaseUser | null>(null)
+  const router = useRouter()
+  const supabase = createClient()
 
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 10)
-    }
-    window.addEventListener("scroll", handleScroll)
-    return () => window.removeEventListener("scroll", handleScroll)
+    // Load the current user, then subscribe to auth state changes
+    supabase.auth.getUser().then(({ data: { user } }) => setUser(user))
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+
+    return () => subscription.unsubscribe()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    router.push("/signin")
+    router.refresh()
+  }
 
   const navItems = [
     //  { name: "Profile", href: "#" },
@@ -101,79 +117,86 @@ export default function ModernCyberpunkNavbar() {
 
               {/* Desktop Auth */}
               <div className="hidden md:flex items-center space-x-3">
-                <SignedOut>
-                  <SignInButton mode="modal">
+                {!user ? (
+                  <>
                     <Button
                       variant="ghost"
                       size="sm"
+                      onClick={() => router.push("/signin")}
                       className="text-gray-400 hover:text-white hover:bg-white/[0.05] transition-all duration-200"
                     >
                       Log in
                     </Button>
-                  </SignInButton>
-                  <SignUpButton mode="modal">
                     <Button
                       size="sm"
+                      onClick={() => router.push("/sign-up")}
                       className="bg-white text-black hover:bg-gray-100 transition-all duration-200 font-medium"
                     >
                       Sign up
                     </Button>
-                  </SignUpButton>
-                </SignedOut>
-
-                <SignedIn>
-                  {/* Notifications */}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-gray-400 hover:text-white hover:bg-white/[0.05] transition-all duration-200 relative"
-                  >
-                    <Bell className="w-4 h-4" />
-                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-violet-500 rounded-full" />
-                  </Button>
-
-                  {/* Custom Profile Dropdown */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-                        <Avatar className="h-8 w-8 border border-white/[0.15]">
-                          <AvatarImage src={user?.imageUrl} alt="Profile" />
-                          <AvatarFallback className="bg-gradient-to-br from-violet-500 to-cyan-500 text-white text-sm">
-                            {user?.firstName?.[0]}{user?.lastName?.[0]}
-                          </AvatarFallback>
-                        </Avatar>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      className="w-56 bg-[#0a0a0a]/95 backdrop-blur-xl border border-white/[0.08] shadow-2xl"
-                      align="end"
+                  </>
+                ) : (
+                  <>
+                    {/* Notifications */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-gray-400 hover:text-white hover:bg-white/[0.05] transition-all duration-200 relative"
                     >
-                      <div className="px-3 py-2 border-b border-white/[0.08]">
-                        <p className="text-sm font-medium text-white">
-                          {user?.firstName} {user?.lastName}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {user?.primaryEmailAddress?.emailAddress}
-                        </p>
-                      </div>
-                      <DropdownMenuItem className="text-gray-300 hover:text-white hover:bg-white/[0.05] transition-colors duration-200">
-                        <User className="mr-2 h-4 w-4" />
-                        Profile
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="text-gray-300 hover:text-white hover:bg-white/[0.05] transition-colors duration-200">
-                        <Settings className="mr-2 h-4 w-4" />
-                        Settings
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator className="bg-white/[0.08]" />
-                      <SignOutButton>
+                      <Bell className="w-4 h-4" />
+                      <div className="absolute -top-1 -right-1 w-2 h-2 bg-violet-500 rounded-full" />
+                    </Button>
+
+                    {/* Custom Profile Dropdown */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+                          <Avatar className="h-8 w-8 border border-white/[0.15]">
+                            <AvatarImage
+                              src={user.user_metadata?.avatar_url ?? ""}
+                              alt="Profile"
+                            />
+                            <AvatarFallback className="bg-gradient-to-br from-violet-500 to-cyan-500 text-white text-sm">
+                              {(user.user_metadata?.full_name ?? user.email ?? "U")
+                                .split(" ")
+                                .map((part: string) => part[0])
+                                .slice(0, 2)
+                                .join("")
+                                .toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        className="w-56 bg-[#0a0a0a]/95 backdrop-blur-xl border border-white/[0.08] shadow-2xl"
+                        align="end"
+                      >
+                        <div className="px-3 py-2 border-b border-white/[0.08]">
+                          <p className="text-sm font-medium text-white">
+                            {user.user_metadata?.full_name ?? "Account"}
+                          </p>
+                          <p className="text-xs text-gray-400">{user.email}</p>
+                        </div>
                         <DropdownMenuItem className="text-gray-300 hover:text-white hover:bg-white/[0.05] transition-colors duration-200">
+                          <User className="mr-2 h-4 w-4" />
+                          Profile
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="text-gray-300 hover:text-white hover:bg-white/[0.05] transition-colors duration-200">
+                          <Settings className="mr-2 h-4 w-4" />
+                          Settings
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator className="bg-white/[0.08]" />
+                        <DropdownMenuItem
+                          onClick={handleSignOut}
+                          className="text-gray-300 hover:text-white hover:bg-white/[0.05] transition-colors duration-200"
+                        >
                           <LogOut className="mr-2 h-4 w-4" />
                           Sign out
                         </DropdownMenuItem>
-                      </SignOutButton>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </SignedIn>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
+                )}
               </div>
 
               {/* Mobile menu button */}
@@ -209,40 +232,44 @@ export default function ModernCyberpunkNavbar() {
             </div>
 
             <div className="mt-6 pt-4 border-t border-white/[0.08]">
-              <SignedOut>
+              {!user ? (
                 <div className="space-y-2">
-                  <SignInButton mode="modal">
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-start text-gray-400 hover:text-white hover:bg-white/[0.05]"
-                    >
-                      Log in
-                    </Button>
-                  </SignInButton>
-                  <SignInButton mode="modal">
-                    <Button className="w-full bg-white text-black hover:bg-gray-100">
-                      Sign up
-                    </Button>
-                  </SignInButton>
+                  <Button
+                    variant="ghost"
+                    onClick={() => router.push("/signin")}
+                    className="w-full justify-start text-gray-400 hover:text-white hover:bg-white/[0.05]"
+                  >
+                    Log in
+                  </Button>
+                  <Button
+                    onClick={() => router.push("/sign-up")}
+                    className="w-full bg-white text-black hover:bg-gray-100"
+                  >
+                    Sign up
+                  </Button>
                 </div>
-              </SignedOut>
-
-              <SignedIn>
+              ) : (
                 <div className="space-y-2">
                   <div className="flex items-center space-x-3 px-3 py-2">
                     <Avatar className="h-8 w-8 border border-white/[0.15]">
-                      <AvatarImage src={user?.imageUrl} alt="Profile" />
+                      <AvatarImage
+                        src={user.user_metadata?.avatar_url ?? ""}
+                        alt="Profile"
+                      />
                       <AvatarFallback className="bg-gradient-to-br from-violet-500 to-cyan-500 text-white text-sm">
-                        {user?.firstName?.[0]}{user?.lastName?.[0]}
+                        {(user.user_metadata?.full_name ?? user.email ?? "U")
+                          .split(" ")
+                          .map((part: string) => part[0])
+                          .slice(0, 2)
+                          .join("")
+                          .toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     <div>
                       <p className="text-sm font-medium text-white">
-                        {user?.firstName} {user?.lastName}
+                        {user.user_metadata?.full_name ?? "Account"}
                       </p>
-                      <p className="text-xs text-gray-400">
-                        {user?.primaryEmailAddress?.emailAddress}
-                      </p>
+                      <p className="text-xs text-gray-400">{user.email}</p>
                     </div>
                   </div>
                   <Button
@@ -260,18 +287,17 @@ export default function ModernCyberpunkNavbar() {
                     Settings
                   </Button>
                   <div className="pt-2">
-                    <UserButton
-                      afterSignOutUrl="/"
-                      appearance={{
-                        elements: {
-                          avatarBox: "w-full",
-                          userButtonBox: "w-full",
-                        }
-                      }}
-                    />
+                    <Button
+                      variant="ghost"
+                      onClick={handleSignOut}
+                      className="w-full justify-start text-gray-400 hover:text-white hover:bg-white/[0.05]"
+                    >
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Sign out
+                    </Button>
                   </div>
                 </div>
-              </SignedIn>
+              )}
             </div>
           </div>
         </div>

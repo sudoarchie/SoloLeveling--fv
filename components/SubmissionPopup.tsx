@@ -1,11 +1,17 @@
 "use client"
 
 import type React from "react"
+import { useState, useEffect, useRef } from "react"
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Zap, TrendingUp, Calendar, Crown } from "lucide-react"
+import { Gift, Check } from "lucide-react"
 
 interface RankInfo {
   name: string
@@ -20,133 +26,143 @@ interface RankInfo {
   icon: React.ComponentType<any>
 }
 
+// Variable-ratio reward schedule — the dopamine mechanic (Skinner)
+// 70% common / 20% rare / 8% epic / 2% legendary
+export interface LootDrop {
+  type: "common" | "rare" | "epic" | "legendary"
+  label: string
+  message: string
+  bonusExp: number
+  /** rare+ → cosmetic theme unlock; epic → title; legendary → streak freeze + avatar upgrade */
+  reward?: {
+    kind: "cosmetic" | "title" | "streakFreeze" | "avatar"
+    value: string
+  }
+}
+
+const LOOT_TABLE: { threshold: number; drop: LootDrop }[] = [
+  {
+    threshold: 0.02,
+    drop: {
+      type: "legendary",
+      label: "JACKPOT",
+      message: "Streak Freeze + Avatar Upgrade earned!",
+      bonusExp: 200,
+      reward: { kind: "streakFreeze", value: "1" },
+    },
+  },
+  {
+    threshold: 0.1,
+    drop: {
+      type: "epic",
+      label: "BIG BONUS",
+      message: 'Title unlocked — "Monarch of Mathematics"',
+      bonusExp: 100,
+      reward: { kind: "title", value: "Monarch of Mathematics" },
+    },
+  },
+  {
+    threshold: 0.3,
+    drop: {
+      type: "rare",
+      label: "GREAT BONUS",
+      message: "Cosmetic theme unlocked + bonus EXP",
+      bonusExp: 50,
+      reward: { kind: "cosmetic", value: "gold" },
+    },
+  },
+  {
+    threshold: 1.0,
+    drop: {
+      type: "common",
+      label: "BONUS",
+      message: "Consistency bonus",
+      bonusExp: 10,
+    },
+  },
+]
+
+function rollLoot(): LootDrop {
+  const roll = Math.random()
+  for (const { threshold, drop } of LOOT_TABLE) {
+    if (roll < threshold) return drop
+  }
+  return LOOT_TABLE[LOOT_TABLE.length - 1].drop
+}
+
 interface SubmissionPopupProps {
   isOpen: boolean
   onClose: () => void
-  currentRank: RankInfo
-  currentExp: number
   expGained: number
-  daysRemaining: number
-  averageExpPerDay: number
-  daysToNextRank: number | null
-  nextRank: RankInfo | null
+  onLootClaimed?: (loot: LootDrop) => void
+  currentRank?: RankInfo
+  currentExp?: number
+  daysRemaining?: number
+  averageExpPerDay?: number
+  daysToNextRank?: number | null
+  nextRank?: RankInfo | null
 }
 
 export default function SubmissionPopup({
   isOpen,
   onClose,
-  currentRank,
-  currentExp,
   expGained,
-  daysRemaining,
-  averageExpPerDay,
-  daysToNextRank,
-  nextRank,
+  onLootClaimed,
 }: SubmissionPopupProps) {
+  const [loot, setLoot] = useState<LootDrop | null>(null)
+  const claimed = useRef(false)
+  useEffect(() => {
+    if (isOpen) {
+      setLoot(expGained > 0 ? rollLoot() : null)
+      claimed.current = false
+    }
+  }, [isOpen, expGained])
+  const finish = () => {
+    if (loot && !claimed.current) {
+      claimed.current = true
+      onLootClaimed?.(loot)
+    }
+    onClose()
+  }
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-gray-900 border-gray-700 text-white max-w-md">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) finish()
+      }}
+    >
+      <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold text-center text-cyan-400 flex items-center justify-center">
-            <Zap className="w-6 h-6 mr-2" />
-            Report Submitted!
-          </DialogTitle>
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Check className="h-6 w-6" />
+          </div>
+          <DialogTitle>Progress, saved.</DialogTitle>
+          <DialogDescription>
+            Another step forward in your preparation.
+          </DialogDescription>
         </DialogHeader>
-
-        <div className="space-y-6 py-4">
-          {/* EXP Gained */}
-          <div className="text-center">
-            <div className={`text-4xl font-bold mb-2 ${expGained >= 0 ? "text-green-400" : "text-red-400"}`}>
-              {expGained >= 0 ? "+" : ""}
-              {expGained} EXP
-            </div>
-            <p className="text-gray-400">Experience {expGained >= 0 ? "Gained" : "Lost"}</p>
-          </div>
-
-          {/* Current Status */}
-          <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-gray-300">Current Rank:</span>
-              <Badge
-                className="text-white font-bold"
-                style={{
-                  backgroundColor: currentRank.color,
-                  boxShadow: `0 0 10px ${currentRank.glowColor}40`,
-                }}
-              >
-                {currentRank.name}-Rank
-              </Badge>
-            </div>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-gray-300">Total EXP:</span>
-              <span className="text-cyan-400 font-mono">{currentExp.toLocaleString()}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-300">Mental State:</span>
-              <span className="text-purple-400 italic">"{currentRank.mentalState}"</span>
-            </div>
-          </div>
-
-          {/* Progress Stats */}
-          <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-200 mb-3 flex items-center">
-              <TrendingUp className="w-5 h-5 mr-2 text-green-400" />
-              Progress Stats
-            </h3>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-300">Avg EXP/Day:</span>
-                <span className="text-yellow-400 font-mono">{averageExpPerDay.toFixed(1)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-gray-300">Days to GATE:</span>
-                <span className="text-red-400 font-mono flex items-center">
-                  <Calendar className="w-4 h-4 mr-1" />
-                  {daysRemaining}
-                </span>
-              </div>
-              {nextRank && daysToNextRank && (
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-300">Days to {nextRank.name}-Rank:</span>
-                  <span className="text-cyan-400 font-mono flex items-center">
-                    <Crown className="w-4 h-4 mr-1" />
-                    {Math.ceil(daysToNextRank)}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Next Rank Preview */}
-          {nextRank && (
-            <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-200 mb-3">Next Rank Goal</h3>
-              <div className="flex items-center space-x-3">
-                <div
-                  className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold border-2"
-                  style={{
-                    backgroundColor: nextRank.color,
-                    borderColor: nextRank.glowColor,
-                    boxShadow: `0 0 15px ${nextRank.glowColor}40`,
-                  }}
-                >
-                  {nextRank.name}
-                </div>
-                <div>
-                  <p className="text-gray-200 font-medium">{nextRank.fullName}</p>
-                  <p className="text-sm text-gray-400">{(nextRank.minExp - currentExp).toLocaleString()} EXP needed</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <Button
-            onClick={onClose}
-            className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700"
-          >
-            Continue Training
-          </Button>
+        <div className="py-4">
+          <p className="text-4xl font-semibold tracking-tight text-primary">
+            {expGained}
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              EXP for today
+            </span>
+          </p>
         </div>
+        {loot && (
+          <div className="flex items-center gap-3 rounded-lg bg-muted p-4">
+            <Gift className="h-5 w-5 shrink-0 text-primary" />
+            <div>
+              <p className="text-sm font-medium">+{loot.bonusExp} bonus EXP</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {loot.message}
+              </p>
+            </div>
+          </div>
+        )}
+        <Button className="mt-2" onClick={finish}>
+          Done
+        </Button>
       </DialogContent>
     </Dialog>
   )

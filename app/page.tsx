@@ -1,53 +1,67 @@
 "use client"
 
-import type React from "react"
-import { useState, useEffect, useCallback } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { useRouter } from "next/navigation"
+import { createClient } from "@/utils/supabase/client"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
-import { Calendar } from "@/components/ui/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import {
-  CalendarIcon,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart"
+import {
+  ArrowRight,
+  BookOpen,
+  CalendarDays,
+  Check,
+  Clock3,
   Settings,
-  Brain,
-  Clock,
-  BarChart3,
-  LineChart,
-  Activity,
-  Zap,
-  Plus,
-  Minus,
   Volume2,
   VolumeX,
+  BarChart3,
+  Zap,
   Crown,
-  Target,
   Flame,
-  RefreshCw,
-  Sparkles,
-  BookOpen,
-  Trophy,
-  CalendarDays,
-  CheckCircle,
-  Star,
+  LayoutDashboard,
+  LogOut,
+  GraduationCap,
 } from "lucide-react"
-import { format, differenceInDays, startOfWeek, endOfWeek, isWithinInterval, subDays } from "date-fns"
+import { toast } from "sonner"
+import {
+  format,
+  differenceInDays,
+  startOfWeek,
+  endOfWeek,
+  isWithinInterval,
+  subDays,
+  isSameDay,
+} from "date-fns"
 import {
   Bar,
   BarChart,
@@ -56,57 +70,23 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  ResponsiveContainer,
-  Radar,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  PieChart,
-  Pie,
-  Cell,
 } from "recharts"
 import { useSoundEffects } from "@/hooks/useSoundEffects"
+import { useDailyQuests } from "@/hooks/useDailyQuests"
+import {
+  useSpacedRepetition,
+  type Difficulty,
+} from "@/hooks/useSpacedRepetition"
+import { DailyQuests } from "@/components/DailyQuests"
+import { StreakTracker } from "@/components/StreakTracker"
+import { ActivityHeatmap } from "@/components/ActivityHeatmap"
+import { CommandConsole } from "@/components/CommandConsole"
+import { ChangePasswordSettings } from "@/components/ChangePasswordSettings"
+import { MockTestInput } from "@/components/MockTestInput"
+import { ReviewSchedule } from "@/components/ReviewSchedule"
+import SubmissionPopup, { type LootDrop } from "@/components/SubmissionPopup"
+import { useUserData, type DailyReport } from "@/hooks/useUserData"
 import { useTheme } from "next-themes"
-
-interface DailyReport {
-  date: Date
-  lecturesCompleted: number
-  topicsRevised: number
-  practiceHours: number
-  morningSession: boolean
-  exerciseDone: boolean
-  distractionsLevel: string
-  mentalState: string
-  expGained: number
-}
-
-interface Skill {
-  id: string
-  name: string
-  level: number
-  exp: number
-  maxExp: number
-  category: string
-}
-
-interface Goal {
-  id: string
-  title: string
-  description: string
-  targetDate: Date
-  completed: boolean
-  progress: number
-}
-
-interface StudyResource {
-  id: string
-  title: string
-  type: "video" | "book" | "article" | "course"
-  url: string
-  completed: boolean
-  rating: number
-}
 
 interface RankInfo {
   name: string
@@ -201,40 +181,79 @@ const chartConfig = {
   morning: { label: "Morning", color: "hsl(var(--chart-5))" },
 }
 
-const motivationalQuotes = [
-  "Excellence is not a skill, it's an attitude.",
-  "Success is the sum of small efforts repeated day in and day out.",
-  "The expert in anything was once a beginner.",
-  "Your only limit is your mind.",
-  "Great things never come from comfort zones.",
-  "Dream it. Believe it. Build it.",
-]
-
-const defaultSkills: Skill[] = [
-  { id: "1", name: "Mathematics", level: 1, exp: 0, maxExp: 100, category: "Core" },
-  { id: "2", name: "Physics", level: 1, exp: 0, maxExp: 100, category: "Core" },
-  { id: "3", name: "Chemistry", level: 1, exp: 0, maxExp: 100, category: "Core" },
-  { id: "4", name: "Programming", level: 1, exp: 0, maxExp: 100, category: "Technical" },
-  { id: "5", name: "Problem Solving", level: 1, exp: 0, maxExp: 100, category: "Soft Skills" },
-]
-
 export default function GATETracker() {
-  const [currentExp, setCurrentExp] = useState(0)
-  const [examDate, setExamDate] = useState<Date | null>(null)
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
-  const [dailyReports, setDailyReports] = useState<DailyReport[]>([])
-  const [skills, setSkills] = useState<Skill[]>(defaultSkills)
-  const [goals, setGoals] = useState<Goal[]>([])
-  const [resources, setResources] = useState<StudyResource[]>([])
-  const [showLevelUp, setShowLevelUp] = useState(false)
-  const [soundEnabled, setSoundEnabled] = useState(true)
-  const [currentQuote, setCurrentQuote] = useState("")
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [selectedTheme, setSelectedTheme] = useState("blue")
+  const [activeView, setActiveView] = useState("today")
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [showSubmissionPopup, setShowSubmissionPopup] = useState(false)
+  const [lastExpGained, setLastExpGained] = useState(0)
 
-  const sounds = useSoundEffects()
+  // All persistent state lives in Supabase (user_progress + daily_reports)
+  const {
+    progress,
+    reports: dailyReports,
+    loading: userDataLoading,
+    saveProgress,
+    saveReport,
+  } = useUserData()
+
+  const currentExp = progress.currentExp
+  const examDate = progress.examDate
+  const soundEnabled = progress.soundEnabled
+  const selectedTheme = progress.selectedTheme
+  const activeTitle = progress.activeTitle
+
+  // Wrapper setters that persist to Supabase
+  const setCurrentExp = (value: number | ((prev: number) => number)) =>
+    saveProgress((prev) => ({
+      currentExp: typeof value === "function" ? value(prev.currentExp) : value,
+    }))
+  const setExamDate = (date: Date | null) => saveProgress({ examDate: date })
+  const setSoundEnabled = (enabled: boolean) =>
+    saveProgress({ soundEnabled: enabled })
+  const setSelectedTheme = (theme: string) =>
+    saveProgress({ selectedTheme: theme })
+  const setUnlockedTitles = (
+    value: string[] | ((prev: string[]) => string[]),
+  ) =>
+    saveProgress((prev) => ({
+      unlockedTitles:
+        typeof value === "function" ? value(prev.unlockedTitles) : value,
+    }))
+  const setActiveTitle = (title: string | null) =>
+    saveProgress({ activeTitle: title })
+  const setUnlockedCosmetics = (
+    value: string[] | ((prev: string[]) => string[]),
+  ) =>
+    saveProgress((prev) => ({
+      unlockedCosmetics:
+        typeof value === "function" ? value(prev.unlockedCosmetics) : value,
+    }))
+
+  const sounds = useSoundEffects(soundEnabled)
   const { theme, setTheme } = useTheme()
+  const changeView = (view: string) => {
+    sounds.buttonClick()
+    setActiveView(view)
+  }
+  const changeSound = (enabled: boolean) => {
+    setSoundEnabled(enabled)
+    if (enabled) requestAnimationFrame(() => sounds.toggleSwitch())
+  }
+  const router = useRouter()
+  const {
+    quests,
+    streak,
+    loading: questsLoading,
+    reward,
+    allDone,
+    updateProgress,
+    dismissReward,
+  } = useDailyQuests()
+  const spacedRepetition = useSpacedRepetition()
 
+  const [studiedTopics, setStudiedTopics] = useState<string[]>([])
+  const [topicDifficulty, setTopicDifficulty] = useState<Difficulty>("medium")
+  const [reviewedToday, setReviewedToday] = useState<Set<string>>(new Set())
   const [formData, setFormData] = useState({
     lecturesCompleted: 0,
     topicsRevised: 0,
@@ -245,272 +264,277 @@ export default function GATETracker() {
     mentalState: "",
   })
 
+  const logInitialized = useRef(false)
+  useEffect(() => {
+    if (userDataLoading || logInitialized.current) return
+    logInitialized.current = true
+    const today = dailyReports.find((report) =>
+      isSameDay(report.date, new Date()),
+    )
+    if (today) {
+      setFormData({
+        lecturesCompleted: today.lecturesCompleted,
+        topicsRevised: today.topicsRevised,
+        practiceHours: today.practiceHours,
+        morningSession: today.morningSession,
+        exerciseDone: today.exerciseDone,
+        distractionsLevel: today.distractionsLevel,
+        mentalState: today.mentalState,
+      })
+    }
+  }, [dailyReports, userDataLoading])
+
   // Get current rank
-  const currentRank = ranks.find((rank) => currentExp >= rank.minExp && currentExp < rank.maxExp) || ranks[0]
-  const nextRank = ranks[ranks.findIndex((r) => r.name === currentRank.name) + 1]
+  const currentRank =
+    ranks.find(
+      (rank) => currentExp >= rank.minExp && currentExp < rank.maxExp,
+    ) || ranks[ranks.length - 1]
+  const nextRank =
+    ranks[ranks.findIndex((r) => r.name === currentRank.name) + 1]
 
   // Calculate days remaining
-  const daysRemaining = examDate ? Math.max(0, differenceInDays(examDate, new Date())) : 180
+  const daysRemaining = examDate
+    ? Math.max(0, differenceInDays(examDate, new Date()))
+    : 0
 
   // Calculate EXP progress within current rank
-  const expProgress = ((currentExp - currentRank.minExp) / (currentRank.maxExp - currentRank.minExp)) * 100
-
-  // Initialize quote
-  useEffect(() => {
-    setCurrentQuote(motivationalQuotes[Math.floor(Math.random() * motivationalQuotes.length)])
-  }, [])
-
-  // Load data from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem("gate-tracker-pro")
-    if (saved) {
-      try {
-        const data = JSON.parse(saved)
-        setCurrentExp(data.currentExp || 0)
-        setDailyReports(data.dailyReports?.map((r: any) => ({ ...r, date: new Date(r.date) })) || [])
-        setSkills(data.skills || defaultSkills)
-        setGoals(data.goals?.map((g: any) => ({ ...g, targetDate: new Date(g.targetDate) })) || [])
-        setResources(data.resources || [])
-        setSoundEnabled(data.soundEnabled ?? true)
-        setSelectedTheme(data.selectedTheme || "blue")
-        if (data.examDate) setExamDate(new Date(data.examDate))
-      } catch (error) {
-        console.error("Error loading data from localStorage:", error)
-      }
-    }
-  }, [])
-
-  // Save data to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "gate-tracker-pro",
-        JSON.stringify({
-          currentExp,
-          dailyReports: dailyReports.map((r) => ({ ...r, date: r.date.toISOString() })),
-          skills,
-          goals: goals.map((g) => ({ ...g, targetDate: g.targetDate.toISOString() })),
-          resources,
-          examDate: examDate?.toISOString(),
-          soundEnabled,
-          selectedTheme,
-        }),
-      )
-    } catch (error) {
-      console.error("Error saving data to localStorage:", error)
-    }
-  }, [currentExp, dailyReports, skills, goals, resources, examDate, soundEnabled, selectedTheme])
+  const expProgress = Math.min(
+    100,
+    ((currentExp - currentRank.minExp) /
+      (currentRank.maxExp - currentRank.minExp)) *
+      100,
+  )
 
   // Apply theme colors
   useEffect(() => {
     const root = document.documentElement
     const selectedThemeData = themes.find((t) => t.value === selectedTheme)
     if (selectedThemeData) {
-      root.style.setProperty("--primary", selectedThemeData.color.replace("hsl(", "").replace(")", ""))
+      root.style.setProperty(
+        "--primary",
+        selectedThemeData.color
+          .replace("hsl(", "")
+          .replace(")", "")
+          .replace(/,/g, ""),
+      )
     }
   }, [selectedTheme])
 
   // Calculate EXP gain
-  const calculateExp = useCallback((data: typeof formData) => {
-    let exp = 0
-    exp += data.lecturesCompleted * 50
-    exp += data.topicsRevised * 30
-    exp += data.practiceHours * 100
-    exp += data.morningSession ? 50 : 0
-    exp += data.exerciseDone ? 30 : 0
+  const calculateExp = useCallback(
+    (data: {
+      lecturesCompleted: number
+      topicsRevised: number
+      practiceHours: number
+      morningSession: boolean
+      exerciseDone: boolean
+      distractionsLevel: string
+    }) => {
+      let exp = 0
+      exp += data.lecturesCompleted * 50
+      exp += data.topicsRevised * 30
+      exp += data.practiceHours * 100
+      exp += data.morningSession ? 50 : 0
+      exp += data.exerciseDone ? 30 : 0
 
-    // Distraction penalty
-    const distractionPenalty = {
-      None: 0,
-      Low: -20,
-      Medium: -50,
-      High: -100,
-    }
-    exp += distractionPenalty[data.distractionsLevel as keyof typeof distractionPenalty] || 0
+      // Distraction penalty
+      const distractionPenalty = {
+        None: 0,
+        Low: -20,
+        Medium: -50,
+        High: -100,
+      }
+      exp +=
+        distractionPenalty[
+          data.distractionsLevel as keyof typeof distractionPenalty
+        ] || 0
 
-    return Math.max(0, exp)
-  }, [])
+      return Math.max(0, exp)
+    },
+    [],
+  )
 
   // Handle form submission
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-
-    const expGained = calculateExp(formData)
-    const newReport: DailyReport = {
-      date: selectedDate,
-      ...formData,
-      expGained,
-    }
-
-    const oldRank = currentRank
-    setCurrentExp((prev) => prev + expGained)
-
-    // Update daily reports - replace if same date exists, otherwise add new
-    setDailyReports((prev) => {
-      const existingIndex = prev.findIndex((r) => r.date.toDateString() === selectedDate.toDateString())
-      if (existingIndex >= 0) {
-        const updated = [...prev]
-        updated[existingIndex] = newReport
-        return updated
-      } else {
-        return [newReport, ...prev].slice(0, 30) // Keep last 30 days
+  const handleSubmit = async () => {
+    try {
+      const expGained = calculateExp(formData)
+      const newReport: DailyReport = {
+        date: new Date(),
+        ...formData,
+        expGained,
       }
-    })
 
-    // Update skills based on activities
-    setSkills((prev) =>
-      prev.map((skill) => {
-        let skillExp = 0
-        if (skill.name === "Mathematics" && formData.lecturesCompleted > 0) skillExp += formData.lecturesCompleted * 10
-        if (skill.name === "Physics" && formData.topicsRevised > 0) skillExp += formData.topicsRevised * 8
-        if (skill.name === "Problem Solving" && formData.practiceHours > 0) skillExp += formData.practiceHours * 20
+      const oldRank = currentRank
+      const previousExp =
+        dailyReports.find((report) => isSameDay(report.date, newReport.date))
+          ?.expGained ?? 0
+      await saveReport(newReport)
+      await setCurrentExp((prev) => Math.max(0, prev + expGained - previousExp))
 
-        if (skillExp > 0) {
-          const newExp = skill.exp + skillExp
-          const newLevel = Math.floor(newExp / skill.maxExp) + 1
-          return {
-            ...skill,
-            exp: newExp % skill.maxExp,
-            level: Math.max(skill.level, newLevel),
-          }
-        }
-        return skill
-      }),
-    )
-
-    // Play sound effects
-    if (soundEnabled) {
-      sounds.formSubmit()
-      if (expGained > 0) {
-        setTimeout(() => sounds.expGain(), 200)
+      // Feed studied topics into spaced repetition:
+      // existing topics advance their review schedule, new ones enter the system
+      let topicFeedback = { reviewed: 0, added: 0, exp: 0 }
+      if (studiedTopics.length > 0) {
+        topicFeedback = await spacedRepetition.logStudiedTopics(
+          studiedTopics,
+          topicDifficulty,
+        )
+        // Track which topics were reviewed today for the checklist
+        const reviewedIds = spacedRepetition.dueTopics
+          .filter((t) =>
+            studiedTopics.some((s) => s.toLowerCase() === t.name.toLowerCase()),
+          )
+          .map((t) => t.id)
+        setReviewedToday((prev) => {
+          const next = new Set(prev)
+          reviewedIds.forEach((id) => next.add(id))
+          return next
+        })
       }
-    }
 
-    // Check for rank up
-    const newExp = currentExp + expGained
-    const newRank = ranks.find((rank) => newExp >= rank.minExp && newExp < rank.maxExp) || ranks[0]
+      // Include experience earned by the topic review schedule.
+      if (topicFeedback.exp > 0)
+        await setCurrentExp((prev) => prev + topicFeedback.exp)
 
-    if (
-      newRank.name !== oldRank.name &&
-      ranks.findIndex((r) => r.name === newRank.name) > ranks.findIndex((r) => r.name === oldRank.name)
-    ) {
-      setShowLevelUp(true)
+      // Play sound effects
       if (soundEnabled) {
-        setTimeout(() => sounds.levelUp(), 500)
+        sounds.formSubmit()
+        if (expGained > 0) {
+          setTimeout(() => sounds.expGain(), 200)
+        }
       }
-      setTimeout(() => setShowLevelUp(false), 4000)
-    }
 
-    // Reset form
-    setFormData({
-      lecturesCompleted: 0,
-      topicsRevised: 0,
-      practiceHours: 0,
-      morningSession: false,
-      exerciseDone: false,
-      distractionsLevel: "None",
-      mentalState: "",
+      // Show the submission popup with variable-reward loot roll
+      setLastExpGained(expGained)
+      setShowSubmissionPopup(true)
+
+      // Check for rank up
+      const newExp = currentExp + expGained - previousExp + topicFeedback.exp
+      const newRank =
+        ranks.find((rank) => newExp >= rank.minExp && newExp < rank.maxExp) ||
+        ranks[ranks.length - 1]
+
+      if (
+        newRank.name !== oldRank.name &&
+        ranks.findIndex((r) => r.name === newRank.name) >
+          ranks.findIndex((r) => r.name === oldRank.name)
+      ) {
+        toast.success(`Rank up! You are now ${newRank.name}-Rank`, {
+          description: newRank.description,
+        })
+        if (soundEnabled) {
+          setTimeout(() => sounds.levelUp(), 500)
+        }
+      }
+
+      // Keep today’s saved values available for later edits.
+      setStudiedTopics([])
+
+      // Topic feedback toast — includes variable EXP from difficulty
+      if (topicFeedback.added > 0 || topicFeedback.reviewed > 0) {
+        const parts = []
+        if (topicFeedback.added > 0)
+          parts.push(
+            `${topicFeedback.added} topic${topicFeedback.added > 1 ? "s" : ""} scheduled for review`,
+          )
+        if (topicFeedback.reviewed > 0)
+          parts.push(
+            `${topicFeedback.reviewed} review${topicFeedback.reviewed > 1 ? "s" : ""} advanced (+${topicFeedback.exp} EXP)`,
+          )
+        toast.success("Review schedule updated", {
+          description: parts.join(" • "),
+        })
+      }
+    } catch {
+      toast.error("Couldn’t save your day", {
+        description: "Your entry is still here. Please try again.",
+      })
+    }
+  }
+
+  // Apply claimed loot: bonus EXP + reward effects (titles, cosmetics, streak freezes)
+  const handleLootClaimed = (loot: LootDrop) => {
+    // Bonus EXP counts toward total
+    setCurrentExp((prev) => prev + loot.bonusExp)
+    if (soundEnabled) setTimeout(() => sounds.expGain(), 150)
+
+    if (!loot.reward) return
+
+    switch (loot.reward.kind) {
+      case "title": {
+        const title = loot.reward.value
+        setUnlockedTitles((prev) =>
+          prev.includes(title) ? prev : [...prev, title],
+        )
+        setActiveTitle(title)
+        break
+      }
+      case "cosmetic": {
+        const cosmetic = loot.reward.value
+        setUnlockedCosmetics((prev) =>
+          prev.includes(cosmetic) ? prev : [...prev, cosmetic],
+        )
+        break
+      }
+      case "streakFreeze":
+        // Streak freeze is granted via the quest system's streak row
+        grantStreakFreeze()
+        break
+      case "avatar":
+        // Reserved for future avatar system
+        break
+    }
+  }
+
+  // Grant a streak freeze through Supabase (best-effort; requires signed-in user)
+  const grantStreakFreeze = async () => {
+    try {
+      const { createClient } = await import("@/utils/supabase/client")
+      const supabase = createClient()
+      const { data } = await supabase.auth.getUser()
+      if (!data.user) return
+      const { data: row } = await supabase
+        .from("streaks")
+        .select("streak_freezes")
+        .eq("user_id", data.user.id)
+        .maybeSingle()
+      if (row) {
+        await supabase
+          .from("streaks")
+          .update({ streak_freezes: (row.streak_freezes ?? 0) + 1 })
+          .eq("user_id", data.user.id)
+      }
+    } catch (e) {
+      console.warn("Could not grant streak freeze:", e)
+    }
+  }
+
+  // Tick a review off the to-do checklist in ReviewSchedule.
+  // success=true → schedule advances + EXP awarded; success=false → spacing resets.
+  const handleChecklistReview = async (id: string, success: boolean) => {
+    sounds.unlock()
+    const exp = await spacedRepetition.completeReview(id, success)
+    if (success) {
+      setReviewedToday((prev) => new Set(prev).add(id))
+      if (exp > 0) {
+        setCurrentExp((prev) => prev + exp)
+        if (soundEnabled) setTimeout(() => sounds.expGain(), 150)
+      }
+    }
+  }
+
+  const getChartData = (days: number) =>
+    Array.from({ length: days }, (_, index) => {
+      const date = subDays(new Date(), days - index - 1)
+      const report = dailyReports.find((entry) => isSameDay(entry.date, date))
+      return {
+        date: format(date, "MMM d"),
+        lectures: report?.lecturesCompleted ?? 0,
+        topics: report?.topicsRevised ?? 0,
+        practice: report?.practiceHours ?? 0,
+        exp: report?.expGained ?? 0,
+      }
     })
-
-    // New quote
-    setCurrentQuote(motivationalQuotes[Math.floor(Math.random() * motivationalQuotes.length)])
-  }
-
-  // Refresh data
-  const handleRefresh = () => {
-    setIsRefreshing(true)
-    if (soundEnabled) sounds.buttonClick()
-    setTimeout(() => {
-      setIsRefreshing(false)
-      setCurrentQuote(motivationalQuotes[Math.floor(Math.random() * motivationalQuotes.length)])
-    }, 1000)
-  }
-
-  // Chart data functions with real data
-  const getChartData = () => {
-    if (dailyReports.length === 0) {
-      // Generate sample data for demo
-      return Array.from({ length: 7 }, (_, i) => ({
-        date: format(subDays(new Date(), 6 - i), "MMM dd"),
-        lectures: Math.floor(Math.random() * 5),
-        topics: Math.floor(Math.random() * 8),
-        practice: Math.floor(Math.random() * 4),
-        exp: Math.floor(Math.random() * 200) + 50,
-      }))
-    }
-
-    return dailyReports
-      .slice(0, 7)
-      .reverse()
-      .map((report) => ({
-        date: format(report.date, "MMM dd"),
-        lectures: report.lecturesCompleted,
-        topics: report.topicsRevised,
-        practice: report.practiceHours,
-        exp: report.expGained,
-      }))
-  }
-
-  const getExpTrendData = () => {
-    if (dailyReports.length === 0) {
-      // Generate sample data for demo
-      let cumulative = 0
-      return Array.from({ length: 14 }, (_, i) => {
-        const exp = Math.floor(Math.random() * 150) + 50
-        cumulative += exp
-        return {
-          date: format(subDays(new Date(), 13 - i), "dd"),
-          exp,
-          total: cumulative,
-        }
-      })
-    }
-
-    let cumulative = 0
-    return dailyReports
-      .slice(0, 14)
-      .reverse()
-      .map((report) => {
-        cumulative += report.expGained
-        return {
-          date: format(report.date, "dd"),
-          exp: report.expGained,
-          total: cumulative,
-        }
-      })
-  }
-
-  const getPerformanceRadarData = () => {
-    const recentReports = dailyReports.slice(0, 7)
-    if (recentReports.length === 0) {
-      // Sample data for demo
-      return [
-        { subject: "Lectures", A: 75, fullMark: 100 },
-        { subject: "Topics", A: 60, fullMark: 100 },
-        { subject: "Practice", A: 80, fullMark: 100 },
-        { subject: "Consistency", A: 70, fullMark: 100 },
-        { subject: "Discipline", A: 85, fullMark: 100 },
-        { subject: "Focus", A: 65, fullMark: 100 },
-      ]
-    }
-
-    const avgLectures = recentReports.reduce((sum, r) => sum + r.lecturesCompleted, 0) / recentReports.length
-    const avgTopics = recentReports.reduce((sum, r) => sum + r.topicsRevised, 0) / recentReports.length
-    const avgPractice = recentReports.reduce((sum, r) => sum + r.practiceHours, 0) / recentReports.length
-    const consistency = (recentReports.filter((r) => r.expGained > 0).length / recentReports.length) * 100
-    const discipline =
-      (recentReports.filter((r) => r.morningSession && r.exerciseDone).length / recentReports.length) * 100
-    const focus = (recentReports.filter((r) => r.distractionsLevel === "None").length / recentReports.length) * 100
-
-    return [
-      { subject: "Lectures", A: Math.min(100, avgLectures * 20), fullMark: 100 },
-      { subject: "Topics", A: Math.min(100, avgTopics * 10), fullMark: 100 },
-      { subject: "Practice", A: Math.min(100, avgPractice * 25), fullMark: 100 },
-      { subject: "Consistency", A: consistency, fullMark: 100 },
-      { subject: "Discipline", A: discipline, fullMark: 100 },
-      { subject: "Focus", A: focus, fullMark: 100 },
-    ]
-  }
 
   const getWeeklyStats = () => {
     const thisWeekStart = startOfWeek(new Date())
@@ -521,959 +545,631 @@ export default function GATETracker() {
 
     return {
       totalExp: thisWeekReports.reduce((sum, r) => sum + r.expGained, 0),
-      totalLectures: thisWeekReports.reduce((sum, r) => sum + r.lecturesCompleted, 0),
+      totalLectures: thisWeekReports.reduce(
+        (sum, r) => sum + r.lecturesCompleted,
+        0,
+      ),
       totalTopics: thisWeekReports.reduce((sum, r) => sum + r.topicsRevised, 0),
-      totalPractice: thisWeekReports.reduce((sum, r) => sum + r.practiceHours, 0),
+      totalPractice: thisWeekReports.reduce(
+        (sum, r) => sum + r.practiceHours,
+        0,
+      ),
       activeDays: thisWeekReports.length,
       avgExp:
         thisWeekReports.length > 0
-          ? thisWeekReports.reduce((sum, r) => sum + r.expGained, 0) / thisWeekReports.length
+          ? thisWeekReports.reduce((sum, r) => sum + r.expGained, 0) /
+            thisWeekReports.length
           : 0,
     }
   }
 
-  const getSkillDistribution = () => {
-    return skills.map((skill) => ({
-      name: skill.name,
-      value: skill.level,
-      fill: `hsl(${Math.random() * 360}, 70%, 50%)`,
-    }))
-  }
-
   const weeklyStats = getWeeklyStats()
 
+  // Redirect to signin if the user signs out from the navbar while on this page
+  useEffect(() => {
+    const supabase = createClient()
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        router.push("/signin")
+      }
+    })
+    return () => subscription.unsubscribe()
+  }, [router])
+
+  // Gate the dashboard behind auth + data load
+  if (userDataLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <Zap className="h-8 w-8 text-primary mx-auto animate-pulse" />
+          <p className="text-sm text-muted-foreground">
+            Loading your workspace…
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const dueCount = spacedRepetition.dueTopics.length
+  const hasReportToday = dailyReports.some((report) =>
+    isSameDay(report.date, new Date()),
+  )
+  const viewCopy: Record<string, { title: string; description: string }> = {
+    today: {
+      title: "Make room for progress.",
+      description: "One focused session at a time. Let’s make today count.",
+    },
+    reviews: {
+      title: "Keep what you’ve learned.",
+      description: "A little recall today makes tomorrow easier.",
+    },
+    progress: {
+      title: "Small steps. Real growth.",
+      description: "See how your preparation is coming together.",
+    },
+  }
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Level Up Animation */}
-      <AnimatePresence>
-        {showLevelUp && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
+    <Tabs
+      value={activeView}
+      onValueChange={changeView}
+      className="min-h-screen lg:grid lg:grid-cols-[232px_minmax(0,1fr)]"
+    >
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-card focus:p-3"
+      >
+        Skip to content
+      </a>
+      <aside className="border-b bg-card lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:border-b-0 lg:border-r">
+        <div className="flex items-center justify-between px-5 py-5 lg:px-6 lg:py-8">
+          <a
+            href="/"
+            className="flex items-center gap-3"
+            aria-label="GATE Tracker home"
           >
-            <motion.div
-              initial={{ scale: 0.5, y: 50 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.5, y: -50 }}
-              transition={{ type: "spring", damping: 15 }}
-              className="text-center"
-            >
-              <motion.div
-                animate={{
-                  scale: [1, 1.1, 1],
-                  rotate: [0, 5, -5, 0],
-                }}
-                transition={{
-                  duration: 0.6,
-                  repeat: 3,
-                  repeatType: "reverse",
-                }}
-                className="text-6xl font-bold text-primary mb-4"
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+              <GraduationCap className="h-5 w-5" />
+            </span>
+            <span className="text-base font-semibold tracking-tight">
+              GATE
+              <span className="font-normal text-muted-foreground">
+                {" "}
+                / tracker
+              </span>
+            </span>
+          </a>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Open settings"
+            onClick={() => setSettingsOpen(true)}
+            className="lg:hidden"
+          >
+            <Settings />
+          </Button>
+        </div>
+        <div className="px-4 pb-3 lg:px-4 lg:pt-5">
+          <p className="mb-3 hidden px-3 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground lg:block">
+            Your workspace
+          </p>
+          <TabsList
+            aria-label="Workspace navigation"
+            className="grid h-auto w-full grid-cols-3 gap-1 bg-transparent p-0 lg:flex lg:flex-col lg:items-stretch"
+          >
+            {[
+              { value: "today", label: "Today", icon: LayoutDashboard },
+              { value: "reviews", label: "Reviews", icon: BookOpen },
+              { value: "progress", label: "Progress", icon: BarChart3 },
+            ].map(({ value, label, icon: Icon }) => (
+              <TabsTrigger
+                key={value}
+                value={value}
+                className="h-11 gap-2 rounded-lg px-3 text-sm text-muted-foreground data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none lg:justify-start"
               >
-                🎉 RANK UP! 🎉
-              </motion.div>
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="text-4xl font-bold mb-2"
-              >
-                {currentRank.name}-Rank {currentRank.title}
-              </motion.div>
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 }}
-                className="text-lg text-muted-foreground mb-6"
-              >
-                {currentRank.description}
-              </motion.div>
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ delay: 0.7, type: "spring" }}
-                className="w-32 h-32 rounded-full flex items-center justify-center text-4xl font-bold text-background mx-auto bg-primary"
-              >
+                <Icon className="h-4 w-4" />
+                <span>{label}</span>
+                {value === "reviews" && dueCount > 0 && (
+                  <span className="ml-auto hidden rounded-md bg-primary/10 px-1.5 py-0.5 text-xs tabular-nums lg:inline">
+                    {dueCount}
+                  </span>
+                )}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+        <div className="mt-auto hidden space-y-5 p-5 lg:block">
+          <div className="rounded-xl border bg-background/70 p-4">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">
                 {currentRank.name}
-              </motion.div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="container mx-auto p-6 max-w-7xl">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between mb-8"
-        >
-          <div>
-            <h1 className="text-4xl font-bold">GATE Tracker Pro</h1>
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="text-muted-foreground mt-1 flex items-center gap-2"
+              </span>
+              <div>
+                <p className="text-sm font-medium">{currentRank.title}</p>
+                <p className="text-xs text-muted-foreground">
+                  {currentExp.toLocaleString()} EXP
+                </p>
+              </div>
+            </div>
+            <Progress
+              value={expProgress}
+              aria-label="Progress to next rank"
+              className="h-1.5"
+            />
+            <p className="mt-2.5 text-xs leading-relaxed text-muted-foreground">
+              {nextRank
+                ? `${(nextRank.minExp - currentExp).toLocaleString()} EXP to ${nextRank.title}`
+                : "Highest rank reached"}
+            </p>
+            {activeTitle && (
+              <p className="mt-3 flex items-center gap-1.5 border-t pt-3 text-xs text-muted-foreground">
+                <Crown className="h-3.5 w-3.5 shrink-0" />
+                {activeTitle}
+              </p>
+            )}
+          </div>
+          <div className="space-y-1">
+            <Button
+              variant="ghost"
+              onClick={() => setSettingsOpen(true)}
+              className="w-full justify-start text-muted-foreground"
             >
-              <Clock className="h-4 w-4" />
-              {daysRemaining} days remaining • Level up your preparation
-            </motion.p>
+              <Settings />
+              Settings
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={async () => {
+                const { error } = await createClient().auth.signOut()
+                if (error) {
+                  toast.error("Couldn’t sign out. Please try again.")
+                  return
+                }
+                router.push("/signin")
+                router.refresh()
+              }}
+              className="w-full justify-start text-muted-foreground"
+            >
+              <LogOut />
+              Sign out
+            </Button>
+          </div>
+        </div>
+      </aside>
+
+      <main id="main-content" className="min-w-0">
+        <header className="flex min-h-16 flex-wrap items-center justify-between gap-2 border-b px-5 py-3 text-sm sm:px-8 lg:px-10">
+          <span className="font-medium">
+            {activeView === "today"
+              ? "Today"
+              : activeView === "reviews"
+                ? "Review schedule"
+                : "Your progress"}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={
+                soundEnabled ? "Mute sound effects" : "Enable sound effects"
+              }
+              aria-pressed={soundEnabled}
+              title={soundEnabled ? "Sound on" : "Sound off"}
+              onClick={() => changeSound(!soundEnabled)}
+              className="h-9 w-9 text-muted-foreground"
+            >
+              {soundEnabled ? <Volume2 /> : <VolumeX />}
+            </Button>
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <CalendarDays className="h-4 w-4" />
+              {examDate
+                ? `${daysRemaining} days until your exam`
+                : "Set your exam date"}
+            </button>
+          </div>
+        </header>
+        <div className="mx-auto max-w-[1240px] px-5 py-7 sm:px-8 sm:py-9 lg:px-10">
+          <div className="mb-8">
+            <p className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              {format(new Date(), "EEEE, MMMM d")}
+            </p>
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+              {viewCopy[activeView].title}
+            </h1>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              {viewCopy[activeView].description}
+            </p>
           </div>
 
-          <div className="flex items-center space-x-3">
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-                Refresh
-              </Button>
-            </motion.div>
-
-            <Dialog>
-              <DialogTrigger asChild>
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                  <Button variant="outline" size="sm" onClick={() => soundEnabled && sounds.buttonClick()}>
-                    <Settings className="h-4 w-4 mr-2" />
-                    Settings
-                  </Button>
-                </motion.div>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Settings</DialogTitle>
-                  <DialogDescription>Configure your GATE preparation tracker</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="sound">Sound Effects</Label>
-                    <Switch
-                      id="sound"
-                      checked={soundEnabled}
-                      onCheckedChange={(checked) => {
-                        setSoundEnabled(checked)
-                        if (checked) sounds.toggleSwitch()
-                      }}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Theme Mode</Label>
-                    <Select
-                      value={theme}
-                      onValueChange={(value) => {
-                        setTheme(value)
-                        if (soundEnabled) sounds.buttonClick()
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select theme mode" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="light">Light Mode</SelectItem>
-                        <SelectItem value="dark">Dark Mode</SelectItem>
-                        <SelectItem value="system">System</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Color Theme</Label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {themes.map((themeOption) => (
-                        <Button
-                          key={themeOption.value}
-                          variant={selectedTheme === themeOption.value ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => {
-                            setSelectedTheme(themeOption.value)
-                            if (soundEnabled) sounds.buttonClick()
-                          }}
-                          className="flex items-center gap-2"
-                        >
-                          <div className="w-4 h-4 rounded-full" style={{ backgroundColor: themeOption.color }} />
-                          {themeOption.name}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Exam Date</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start bg-transparent">
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {examDate ? format(examDate, "PPP") : "Select date"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single" selected={examDate || undefined} onSelect={setExamDate} />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSoundEnabled(!soundEnabled)
-                  if (soundEnabled) sounds.buttonClick()
-                }}
-              >
-                {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-              </Button>
-            </motion.div>
-          </div>
-        </motion.div>
-
-        <Tabs defaultValue="overview" className="space-y-6">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-            <TabsList className="grid w-full grid-cols-6">
-              <TabsTrigger value="overview">
-                <Activity className="h-4 w-4 mr-2" />
-                Overview
-              </TabsTrigger>
-              <TabsTrigger value="analytics">
-                <BarChart3 className="h-4 w-4 mr-2" />
-                Analytics
-              </TabsTrigger>
-              <TabsTrigger value="skills">
-                <Brain className="h-4 w-4 mr-2" />
-                Skills
-              </TabsTrigger>
-              <TabsTrigger value="goals">
-                <Target className="h-4 w-4 mr-2" />
-                Goals
-              </TabsTrigger>
-              <TabsTrigger value="study-plan">
-                <CalendarDays className="h-4 w-4 mr-2" />
-                Study Plan
-              </TabsTrigger>
-              <TabsTrigger value="resources">
-                <BookOpen className="h-4 w-4 mr-2" />
-                Resources
-              </TabsTrigger>
-            </TabsList>
-          </motion.div>
-
-          <TabsContent value="overview" className="space-y-6">
-            {/* Stats Cards */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
-            >
-              <motion.div whileHover={{ scale: 1.02 }} transition={{ type: "spring", stiffness: 300 }}>
-                <Card>
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Current Rank</p>
-                        <p className="text-3xl font-bold">{currentRank.name}</p>
-                        <p className="text-sm text-muted-foreground">{currentRank.title}</p>
-                      </div>
-                      <div className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold bg-primary text-primary-foreground">
-                        <Crown className="h-6 w-6" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-
-              <motion.div whileHover={{ scale: 1.02 }} transition={{ type: "spring", stiffness: 300 }}>
-                <Card>
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Total EXP</p>
-                        <p className="text-3xl font-bold">{currentExp.toLocaleString()}</p>
-                        <p className="text-sm text-muted-foreground">+{weeklyStats.totalExp} this week</p>
-                      </div>
-                      <Zap className="h-8 w-8 text-primary" />
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-
-              <motion.div whileHover={{ scale: 1.02 }} transition={{ type: "spring", stiffness: 300 }}>
-                <Card>
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Study Streak</p>
-                        <p className="text-3xl font-bold">
-                          {dailyReports.filter((r, i) => i < 7 && r.expGained > 0).length}
-                        </p>
-                        <p className="text-sm text-muted-foreground">days active</p>
-                      </div>
-                      <Flame className="h-8 w-8 text-primary" />
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-
-              <motion.div whileHover={{ scale: 1.02 }} transition={{ type: "spring", stiffness: 300 }}>
-                <Card>
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Avg Daily EXP</p>
-                        <p className="text-3xl font-bold">{Math.round(weeklyStats.avgExp)}</p>
-                        <p className="text-sm text-muted-foreground">this week</p>
-                      </div>
-                      <Target className="h-8 w-8 text-primary" />
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            </motion.div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Daily Entry Form */}
-              <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.5 }}
-                className="lg:col-span-2"
-              >
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <Sparkles className="h-5 w-5 mr-2 text-primary" />
-                      Daily Entry
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                      <div className="space-y-2">
-                        <Label>Date</Label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button variant="outline" className="w-full justify-start bg-transparent">
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {format(selectedDate, "PPP")}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={selectedDate}
-                              onSelect={(date) => date && setSelectedDate(date)}
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <motion.div whileHover={{ scale: 1.02 }} className="space-y-2">
-                          <Label htmlFor="lectures">Lectures Completed</Label>
-                          <div className="flex items-center space-x-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  lecturesCompleted: Math.max(0, prev.lecturesCompleted - 1),
-                                }))
-                                if (soundEnabled) sounds.buttonClick()
-                              }}
-                            >
-                              <Minus className="h-4 w-4" />
-                            </Button>
-                            <Input
-                              id="lectures"
-                              type="number"
-                              value={formData.lecturesCompleted}
-                              onChange={(e) =>
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  lecturesCompleted: Number.parseInt(e.target.value) || 0,
-                                }))
-                              }
-                              className="text-center"
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setFormData((prev) => ({ ...prev, lecturesCompleted: prev.lecturesCompleted + 1 }))
-                                if (soundEnabled) sounds.buttonClick()
-                              }}
-                            >
-                              <Plus className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          <motion.p
-                            key={formData.lecturesCompleted}
-                            initial={{ scale: 1.2 }}
-                            animate={{ scale: 1 }}
-                            className="text-xs text-muted-foreground"
-                          >
-                            +{formData.lecturesCompleted * 50} EXP
-                          </motion.p>
-                        </motion.div>
-
-                        <motion.div whileHover={{ scale: 1.02 }} className="space-y-2">
-                          <Label htmlFor="topics">Topics Revised</Label>
-                          <div className="flex items-center space-x-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setFormData((prev) => ({ ...prev, topicsRevised: Math.max(0, prev.topicsRevised - 1) }))
-                                if (soundEnabled) sounds.buttonClick()
-                              }}
-                            >
-                              <Minus className="h-4 w-4" />
-                            </Button>
-                            <Input
-                              id="topics"
-                              type="number"
-                              value={formData.topicsRevised}
-                              onChange={(e) =>
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  topicsRevised: Number.parseInt(e.target.value) || 0,
-                                }))
-                              }
-                              className="text-center"
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setFormData((prev) => ({ ...prev, topicsRevised: prev.topicsRevised + 1 }))
-                                if (soundEnabled) sounds.buttonClick()
-                              }}
-                            >
-                              <Plus className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          <motion.p
-                            key={formData.topicsRevised}
-                            initial={{ scale: 1.2 }}
-                            animate={{ scale: 1 }}
-                            className="text-xs text-muted-foreground"
-                          >
-                            +{formData.topicsRevised * 30} EXP
-                          </motion.p>
-                        </motion.div>
-
-                        <motion.div whileHover={{ scale: 1.02 }} className="space-y-2">
-                          <Label htmlFor="practice">Practice Hours</Label>
-                          <div className="flex items-center space-x-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  practiceHours: Math.max(0, prev.practiceHours - 0.5),
-                                }))
-                                if (soundEnabled) sounds.buttonClick()
-                              }}
-                            >
-                              <Minus className="h-4 w-4" />
-                            </Button>
-                            <Input
-                              id="practice"
-                              type="number"
-                              step="0.5"
-                              value={formData.practiceHours}
-                              onChange={(e) =>
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  practiceHours: Number.parseFloat(e.target.value) || 0,
-                                }))
-                              }
-                              className="text-center"
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setFormData((prev) => ({ ...prev, practiceHours: prev.practiceHours + 0.5 }))
-                                if (soundEnabled) sounds.buttonClick()
-                              }}
-                            >
-                              <Plus className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          <motion.p
-                            key={formData.practiceHours}
-                            initial={{ scale: 1.2 }}
-                            animate={{ scale: 1 }}
-                            className="text-xs text-muted-foreground"
-                          >
-                            +{formData.practiceHours * 100} EXP
-                          </motion.p>
-                        </motion.div>
-                      </div>
-
-                      {/* Bonus Activities */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="flex items-center justify-between p-3 rounded-lg border">
-                          <Label htmlFor="morning">Morning Session</Label>
-                          <Switch
-                            id="morning"
-                            checked={formData.morningSession}
-                            onCheckedChange={(checked) => {
-                              setFormData({ ...formData, morningSession: checked })
-                              if (soundEnabled) sounds.toggleSwitch()
-                            }}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between p-3 rounded-lg border">
-                          <Label htmlFor="exercise">Exercise Done</Label>
-                          <Switch
-                            id="exercise"
-                            checked={formData.exerciseDone}
-                            onCheckedChange={(checked) => {
-                              setFormData({ ...formData, exerciseDone: checked })
-                              if (soundEnabled) sounds.toggleSwitch()
-                            }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Distractions Level</Label>
-                        <Select
-                          value={formData.distractionsLevel}
-                          onValueChange={(value) => {
-                            setFormData({ ...formData, distractionsLevel: value })
-                            if (soundEnabled) sounds.buttonClick()
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="None">None (+0 EXP)</SelectItem>
-                            <SelectItem value="Low">Low (-20 EXP)</SelectItem>
-                            <SelectItem value="Medium">Medium (-50 EXP)</SelectItem>
-                            <SelectItem value="High">High (-100 EXP)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <motion.div
-                        animate={{
-                          scale: calculateExp(formData) > 0 ? [1, 1.02, 1] : 1,
-                        }}
-                        transition={{ duration: 0.5 }}
-                        className="rounded-lg p-4 border"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium">Total EXP Gain</span>
-                          <motion.span
-                            key={calculateExp(formData)}
-                            initial={{ scale: 1.3 }}
-                            animate={{ scale: 1 }}
-                            className="text-2xl font-bold text-primary"
-                          >
-                            +{calculateExp(formData)}
-                          </motion.span>
-                        </div>
-                      </motion.div>
-
-                      <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                        <Button type="submit" className="w-full">
-                          Submit Entry
-                        </Button>
-                      </motion.div>
-                    </form>
-                  </CardContent>
-                </Card>
-              </motion.div>
-
-              {/* Rank & Stats */}
-              <motion.div
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.6 }}
-                className="space-y-6"
-              >
-                {/* Current Rank */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Current Rank</CardTitle>
-                  </CardHeader>
-                  <CardContent className="text-center space-y-4">
-                    <motion.div
-                      whileHover={{ scale: 1.1, rotate: 5 }}
-                      className="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold text-primary-foreground mx-auto bg-primary"
-                    >
-                      {currentRank.name}
-                    </motion.div>
-                    <div>
-                      <h3 className="text-xl font-semibold">{currentRank.title}</h3>
-                      <p className="text-sm text-muted-foreground">{currentExp.toLocaleString()} EXP</p>
-                      <p className="text-xs text-muted-foreground mt-1">{currentRank.description}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span>Progress</span>
-                        <span>{Math.round(expProgress)}%</span>
-                      </div>
-                      <Progress value={expProgress} className="h-2" />
-                      {nextRank && (
-                        <p className="text-xs text-muted-foreground">
-                          {(nextRank.minExp - currentExp).toLocaleString()} EXP to {nextRank.name}-Rank
-                        </p>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Daily Wisdom */}
-                <motion.div
-                  key={currentQuote}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5 }}
+          <TabsContent value="today" className="mt-0 space-y-7">
+            <div className="grid grid-cols-3 divide-x rounded-xl border bg-card py-5">
+              <div className="px-4 sm:px-6">
+                <p className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <Flame className="hidden h-4 w-4 sm:block" />
+                  Study streak
+                </p>
+                <p className="text-2xl font-semibold tracking-tight tabular-nums">
+                  {streak.currentStreak}
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                    days
+                  </span>
+                </p>
+              </div>
+              <div className="px-4 sm:px-6">
+                <p className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <Clock3 className="hidden h-4 w-4 sm:block" />
+                  This week
+                </p>
+                <p className="text-2xl font-semibold tracking-tight tabular-nums">
+                  {weeklyStats.totalPractice}
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                    hrs
+                  </span>
+                </p>
+              </div>
+              <div className="px-4 sm:px-6">
+                <p className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <BookOpen className="hidden h-4 w-4 sm:block" />
+                  Reviews due
+                </p>
+                <button
+                  onClick={() => changeView("reviews")}
+                  className="flex items-center gap-3 text-2xl font-semibold tracking-tight tabular-nums hover:text-primary"
+                  aria-label={`View ${dueCount} reviews due`}
                 >
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center">
-                        <Brain className="h-5 w-5 mr-2 text-primary" />
-                        Daily Wisdom
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm italic text-center">"{currentQuote}"</p>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-
-                {/* Quick Stats */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Weekly Stats</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Total EXP</span>
-                      <Badge variant="secondary">{weeklyStats.totalExp}</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Lectures</span>
-                      <Badge variant="secondary">{weeklyStats.totalLectures}</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Topics</span>
-                      <Badge variant="secondary">{weeklyStats.totalTopics}</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Practice Hours</span>
-                      <Badge variant="secondary">{weeklyStats.totalPractice.toFixed(1)}</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Active Days</span>
-                      <Badge variant="secondary">{weeklyStats.activeDays}/7</Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
+                  {dueCount}
+                  <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                </button>
+              </div>
+            </div>
+            <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+              <CommandConsole
+                logData={formData}
+                onLogChange={(patch) =>
+                  setFormData((prev) => ({ ...prev, ...patch }))
+                }
+                onLogSubmit={handleSubmit}
+                expPreview={calculateExp(formData)}
+                studiedTopics={studiedTopics}
+                onStudiedTopicsChange={setStudiedTopics}
+                topicDifficulty={topicDifficulty}
+                onTopicDifficultyChange={setTopicDifficulty}
+                hasReportToday={hasReportToday}
+                soundEnabled={soundEnabled}
+              />
+              <div className="space-y-5">
+                <DailyQuests
+                  quests={quests}
+                  streak={streak}
+                  loading={questsLoading}
+                  reward={reward}
+                  allDone={allDone}
+                  updateProgress={updateProgress}
+                  dismissReward={dismissReward}
+                  soundEnabled={soundEnabled}
+                  dueTopics={spacedRepetition.dueTopics}
+                  reviewsLoading={spacedRepetition.loading}
+                  onReview={handleChecklistReview}
+                  onViewReviews={() => changeView("reviews")}
+                />
+              </div>
             </div>
           </TabsContent>
 
-          <TabsContent value="analytics" className="space-y-6">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="grid gap-6 md:grid-cols-2"
-            >
-              {/* Daily Activity Chart */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <BarChart3 className="h-5 w-5 mr-2 text-primary" />
-                    Daily Activity (Last 7 Days)
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ChartContainer config={chartConfig} className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={getChartData()}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" />
-                        <YAxis />
-                        <ChartTooltip content={<ChartTooltipContent />} />
-                        <Bar dataKey="lectures" fill="var(--color-lectures)" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="topics" fill="var(--color-topics)" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="practice" fill="var(--color-practice)" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
-
-              {/* EXP Trend */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <LineChart className="h-5 w-5 mr-2 text-primary" />
-                    EXP Trend (Last 14 Days)
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ChartContainer config={chartConfig} className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RechartsLineChart data={getExpTrendData()}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" />
-                        <YAxis />
-                        <ChartTooltip content={<ChartTooltipContent />} />
-                        <Line
-                          type="monotone"
-                          dataKey="exp"
-                          stroke="var(--color-exp)"
-                          strokeWidth={3}
-                          dot={{ fill: "var(--color-exp)", strokeWidth: 2, r: 4 }}
-                        />
-                      </RechartsLineChart>
-                    </ResponsiveContainer>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
-
-              {/* Performance Radar */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Target className="h-5 w-5 mr-2 text-primary" />
-                    Performance Radar
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ChartContainer config={chartConfig} className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RadarChart data={getPerformanceRadarData()}>
-                        <PolarGrid />
-                        <PolarAngleAxis dataKey="subject" />
-                        <PolarRadiusAxis angle={90} domain={[0, 100]} />
-                        <Radar
-                          name="Performance"
-                          dataKey="A"
-                          stroke="var(--color-exp)"
-                          fill="var(--color-exp)"
-                          fillOpacity={0.3}
-                          strokeWidth={2}
-                        />
-                        <ChartTooltip />
-                      </RadarChart>
-                    </ResponsiveContainer>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
-
-              {/* Skill Distribution */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Star className="h-5 w-5 mr-2 text-primary" />
-                    Skill Levels
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ChartContainer config={chartConfig} className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={getSkillDistribution()}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, value }) => `${name}: ${value}`}
-                          outerRadius={80}
-                          fill="#8884d8"
-                          dataKey="value"
-                        >
-                          {getSkillDistribution().map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.fill} />
-                          ))}
-                        </Pie>
-                        <ChartTooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </ChartContainer>
-                </CardContent>
-              </Card>
-            </motion.div>
+          <TabsContent value="reviews" className="mt-0">
+            <ReviewSchedule
+              dueTopics={spacedRepetition.dueTopics}
+              upcomingTopics={spacedRepetition.upcomingTopics}
+              masteredTopics={spacedRepetition.masteredTopics}
+              loading={spacedRepetition.loading}
+              completedToday={reviewedToday}
+              onCompleteReview={handleChecklistReview}
+            />
           </TabsContent>
 
-          <TabsContent value="skills" className="space-y-6">
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6">
+          <TabsContent value="progress" className="mt-0 space-y-6">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <MockTestInput soundEnabled={soundEnabled} />
+              <StreakTracker streak={streak} />
+            </div>
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Brain className="h-5 w-5 mr-2 text-primary" />
-                    Skill Development
-                  </CardTitle>
+                  <CardTitle>Your preparation, at a glance</CardTitle>
+                  <CardDescription>This week’s effort adds up.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {skills.map((skill) => (
-                      <div key={skill.id} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h4 className="font-medium">{skill.name}</h4>
-                            <p className="text-sm text-muted-foreground">{skill.category}</p>
-                          </div>
-                          <div className="text-right">
-                            <Badge variant="secondary">Level {skill.level}</Badge>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {skill.exp}/{skill.maxExp} EXP
-                            </p>
-                          </div>
-                        </div>
-                        <Progress value={(skill.exp / skill.maxExp) * 100} className="h-2" />
+                  <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
+                    {[
+                      { label: "Lectures", value: weeklyStats.totalLectures },
+                      {
+                        label: "Topics revised",
+                        value: weeklyStats.totalTopics,
+                      },
+                      {
+                        label: "Practice hours",
+                        value: weeklyStats.totalPractice,
+                      },
+                      {
+                        label: "EXP earned",
+                        value: weeklyStats.totalExp.toLocaleString(),
+                      },
+                    ].map((stat) => (
+                      <div key={stat.label}>
+                        <p className="text-2xl font-semibold tabular-nums">
+                          {stat.value}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {stat.label}
+                        </p>
                       </div>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          </TabsContent>
-
-          <TabsContent value="goals" className="space-y-6">
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Target className="h-5 w-5 mr-2 text-primary" />
-                    Study Goals
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {goals.length === 0 ? (
-                    <div className="text-center py-8">
-                      <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground">No goals set yet. Create your first goal to get started!</p>
-                      <Button className="mt-4">
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Goal
-                      </Button>
+                  <div className="mt-7 flex flex-wrap items-center gap-3 border-t pt-5">
+                    <span className="rounded-lg bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">
+                      {currentRank.name} rank
+                    </span>
+                    <div>
+                      <p className="text-sm font-medium">
+                        {currentRank.title} · {currentExp.toLocaleString()} EXP
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {nextRank
+                          ? `${(nextRank.minExp - currentExp).toLocaleString()} EXP until ${nextRank.title}`
+                          : "Highest rank reached"}
+                      </p>
                     </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {goals.map((goal) => (
-                        <div key={goal.id} className="p-4 border rounded-lg">
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="font-medium">{goal.title}</h4>
-                            <Badge variant={goal.completed ? "default" : "secondary"}>
-                              {goal.completed ? "Completed" : "In Progress"}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground mb-2">{goal.description}</p>
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">
-                              Due: {format(goal.targetDate, "MMM dd, yyyy")}
-                            </span>
-                            <span className="text-xs text-muted-foreground">{goal.progress}% complete</span>
-                          </div>
-                          <Progress value={goal.progress} className="h-2 mt-2" />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </motion.div>
-          </TabsContent>
-
-          <TabsContent value="study-plan" className="space-y-6">
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <CalendarDays className="h-5 w-5 mr-2 text-primary" />
-                    Study Schedule
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-center py-8">
-                    <CalendarDays className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">Study planner coming soon! Plan your daily study sessions.</p>
                   </div>
                 </CardContent>
               </Card>
-            </motion.div>
-          </TabsContent>
-
-          <TabsContent value="resources" className="space-y-6">
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6">
+            </div>
+            {dailyReports.length === 0 ? (
               <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <BookOpen className="h-5 w-5 mr-2 text-primary" />
-                    Study Resources
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {resources.length === 0 ? (
-                    <div className="text-center py-8">
-                      <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground">No resources added yet. Add your study materials!</p>
-                      <Button className="mt-4">
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Resource
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {resources.map((resource) => (
-                        <div key={resource.id} className="p-4 border rounded-lg">
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="font-medium">{resource.title}</h4>
-                            <Badge variant="outline">{resource.type}</Badge>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              {Array.from({ length: 5 }).map((_, i) => (
-                                <Star
-                                  key={i}
-                                  className={`h-4 w-4 ${
-                                    i < resource.rating ? "text-yellow-400 fill-current" : "text-gray-300"
-                                  }`}
-                                />
-                              ))}
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              {resource.completed && <CheckCircle className="h-4 w-4 text-green-500" />}
-                              <Button size="sm" variant="outline" asChild>
-                                <a href={resource.url} target="_blank" rel="noopener noreferrer">
-                                  View
-                                </a>
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                <CardContent className="py-12 text-center">
+                  <BarChart3 className="mx-auto mb-4 h-8 w-8 text-muted-foreground" />
+                  <h2 className="font-medium">
+                    Your progress starts with one day
+                  </h2>
+                  <p className="mb-5 mt-2 text-sm text-muted-foreground">
+                    Save your first study log to see your activity here.
+                  </p>
+                  <Button onClick={() => changeView("today")}>
+                    Log your day
+                    <ArrowRight />
+                  </Button>
                 </CardContent>
               </Card>
-            </motion.div>
+            ) : (
+              <>
+                <div className="grid gap-6 xl:grid-cols-2">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Daily activity</CardTitle>
+                      <CardDescription>
+                        Lectures and topics · last 7 days
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer
+                        config={chartConfig}
+                        className="h-[240px] w-full"
+                      >
+                        <BarChart
+                          accessibilityLayer
+                          data={getChartData(7)}
+                          margin={{ left: -20, right: 8 }}
+                        >
+                          <CartesianGrid
+                            vertical={false}
+                            strokeDasharray="3 3"
+                          />
+                          <XAxis
+                            dataKey="date"
+                            axisLine={false}
+                            tickLine={false}
+                            tickMargin={10}
+                          />
+                          <YAxis
+                            axisLine={false}
+                            tickLine={false}
+                            allowDecimals={false}
+                          />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Bar
+                            dataKey="lectures"
+                            fill="var(--color-lectures)"
+                            radius={[4, 4, 0, 0]}
+                          />
+                          <Bar
+                            dataKey="topics"
+                            fill="var(--color-topics)"
+                            radius={[4, 4, 0, 0]}
+                          />
+                        </BarChart>
+                      </ChartContainer>
+                      <div className="mt-3 flex justify-center gap-5 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-sm bg-[hsl(var(--chart-1))]" />
+                          Lectures
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-sm bg-[hsl(var(--chart-2))]" />
+                          Topics
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Experience over time</CardTitle>
+                      <CardDescription>
+                        Daily EXP · last 14 days
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer
+                        config={chartConfig}
+                        className="h-[240px] w-full"
+                      >
+                        <RechartsLineChart
+                          accessibilityLayer
+                          data={getChartData(14)}
+                          margin={{ left: -12, right: 8 }}
+                        >
+                          <CartesianGrid
+                            vertical={false}
+                            strokeDasharray="3 3"
+                          />
+                          <XAxis
+                            dataKey="date"
+                            axisLine={false}
+                            tickLine={false}
+                            minTickGap={28}
+                            tickMargin={10}
+                          />
+                          <YAxis axisLine={false} tickLine={false} />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Line
+                            type="monotone"
+                            dataKey="exp"
+                            stroke="var(--color-exp)"
+                            strokeWidth={2}
+                            dot={false}
+                            activeDot={{ r: 4 }}
+                          />
+                        </RechartsLineChart>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+                <ActivityHeatmap dailyReports={dailyReports} weeks={5} />
+              </>
+            )}
           </TabsContent>
-        </Tabs>
-      </div>
-    </div>
+          <p className="mt-9 text-center text-xs text-muted-foreground/80">
+            Show up. Stay curious. Keep going.
+          </p>
+        </div>
+      </main>
+
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Make it yours</DialogTitle>
+            <DialogDescription>
+              Your exam, your pace, your workspace.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-3">
+            <div className="space-y-2">
+              <Label htmlFor="exam-date">Exam date</Label>
+              <Input
+                id="exam-date"
+                type="date"
+                value={examDate ? format(examDate, "yyyy-MM-dd") : ""}
+                onChange={(event) =>
+                  setExamDate(
+                    event.target.value
+                      ? new Date(`${event.target.value}T00:00:00`)
+                      : null,
+                  )
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="theme-mode">Appearance</Label>
+              <Select value={theme} onValueChange={setTheme}>
+                <SelectTrigger id="theme-mode">
+                  <SelectValue placeholder="Choose appearance" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="light">Light</SelectItem>
+                  <SelectItem value="dark">Dark</SelectItem>
+                  <SelectItem value="system">Use device setting</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <fieldset>
+              <legend className="mb-3 text-sm font-medium">Accent color</legend>
+              <div className="grid grid-cols-3 gap-2">
+                {themes.map((option) => (
+                  <Button
+                    key={option.value}
+                    variant="outline"
+                    size="sm"
+                    aria-pressed={selectedTheme === option.value}
+                    onClick={() => setSelectedTheme(option.value)}
+                    className={
+                      selectedTheme === option.value
+                        ? "border-primary bg-primary/5"
+                        : ""
+                    }
+                  >
+                    <span
+                      className="flex h-4 w-4 items-center justify-center rounded-full"
+                      style={{ backgroundColor: option.color }}
+                    >
+                      {selectedTheme === option.value && (
+                        <Check className="!h-3 !w-3 text-white" />
+                      )}
+                    </span>
+                    {option.name}
+                  </Button>
+                ))}
+              </div>
+            </fieldset>
+            <div className="flex items-center justify-between border-t pt-5">
+              <div>
+                <Label htmlFor="sound">Sound effects</Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A little feedback for your progress.
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!soundEnabled}
+                onClick={sounds.formSubmit}
+              >
+                Test sound
+              </Button>
+              <Switch
+                id="sound"
+                checked={soundEnabled}
+                onCheckedChange={changeSound}
+              />
+            </div>
+            <ChangePasswordSettings />
+            <Button
+              variant="outline"
+              className="w-full lg:hidden"
+              onClick={async () => {
+                const { error } = await createClient().auth.signOut()
+                if (error) {
+                  toast.error("Couldn’t sign out. Please try again.")
+                  return
+                }
+                router.push("/signin")
+                router.refresh()
+              }}
+            >
+              <LogOut />
+              Sign out
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <SubmissionPopup
+        isOpen={showSubmissionPopup}
+        onClose={() => setShowSubmissionPopup(false)}
+        expGained={lastExpGained}
+        onLootClaimed={handleLootClaimed}
+      />
+    </Tabs>
   )
 }
