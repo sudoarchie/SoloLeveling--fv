@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { format } from "date-fns"
 import { createClient } from "@/utils/supabase/client"
 
@@ -40,13 +40,27 @@ const DEFAULT_PROGRESS: UserProgress = {
   customPrompt: "",
 }
 
+function progressFromRow(row: any): UserProgress {
+  return {
+    currentExp: row.current_exp ?? 0,
+    examDate: row.exam_date ? new Date(`${row.exam_date}T00:00:00`) : null,
+    soundEnabled: row.sound_enabled ?? true,
+    selectedTheme: row.selected_theme ?? "blue",
+    unlockedTitles: row.unlocked_titles ?? [],
+    activeTitle: row.active_title ?? null,
+    unlockedCosmetics: row.unlocked_cosmetics ?? [],
+    plan: row.plan ?? "free",
+    customPrompt: row.custom_prompt ?? "",
+  }
+}
+
 /**
  * Replaces localStorage with Supabase persistence.
  * - user_progress: one row per user (EXP, settings, cosmetics)
  * - daily_reports: one row per user per day (daily entry form data)
  */
 export function useUserData() {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
   const [userId, setUserId] = useState<string | null>(null)
   const [progress, setProgress] = useState<UserProgress>(DEFAULT_PROGRESS)
   const [reports, setReports] = useState<DailyReport[]>([])
@@ -74,32 +88,9 @@ export function useUserData() {
       .maybeSingle()
 
     if (progressRow) {
-      setProgress({
-        currentExp: progressRow.current_exp ?? 0,
-        examDate: progressRow.exam_date
-          ? new Date(`${progressRow.exam_date}T00:00:00`)
-          : null,
-        soundEnabled: progressRow.sound_enabled ?? true,
-        selectedTheme: progressRow.selected_theme ?? "blue",
-        unlockedTitles: progressRow.unlocked_titles ?? [],
-        activeTitle: progressRow.active_title ?? null,
-        unlockedCosmetics: progressRow.unlocked_cosmetics ?? [],
-        plan: progressRow.plan ?? "free",
-        customPrompt: progressRow.custom_prompt ?? "",
-      })
-      progressRef.current = {
-        currentExp: progressRow.current_exp ?? 0,
-        examDate: progressRow.exam_date
-          ? new Date(`${progressRow.exam_date}T00:00:00`)
-          : null,
-        soundEnabled: progressRow.sound_enabled ?? true,
-        selectedTheme: progressRow.selected_theme ?? "blue",
-        unlockedTitles: progressRow.unlocked_titles ?? [],
-        activeTitle: progressRow.active_title ?? null,
-        unlockedCosmetics: progressRow.unlocked_cosmetics ?? [],
-        plan: progressRow.plan ?? "free",
-        customPrompt: progressRow.custom_prompt ?? "",
-      }
+      const nextProgress = progressFromRow(progressRow)
+      setProgress(nextProgress)
+      progressRef.current = nextProgress
     } else {
       // Fallback for users created before the trigger existed
       await supabase.from("user_progress").upsert({ user_id: userId })
@@ -138,6 +129,23 @@ export function useUserData() {
       load()
     }
   }, [userId, load])
+
+  useEffect(() => {
+    const reloadProgress = async () => {
+      if (!userId) return
+      const { data } = await supabase
+        .from("user_progress")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle()
+      if (!data) return
+      const nextProgress = progressFromRow(data)
+      progressRef.current = nextProgress
+      setProgress(nextProgress)
+    }
+    window.addEventListener("user-progress-changed", reloadProgress)
+    return () => window.removeEventListener("user-progress-changed", reloadProgress)
+  }, [supabase, userId])
 
   // Persist progress. Accepts a partial patch or an updater function
   // (like setState) so rapid successive updates don't clobber each other.

@@ -1,6 +1,6 @@
 # Mock question bank: AI ingestion guide
 
-This is a shared question bank: upload a paper once, and every signed-in user can select its exam (for example, **GATE**) to browse questions, images, and answers. The importing account retains permission to edit or delete its papers. Users only need their own normal app login to browse; they do not need the uploader's credentials. The existing mock score logger remains under Progress. This bank does not yet administer timed tests or grade attempts.
+This is a shared timed mock test bank: upload a paper once, and every signed-in user can select its exam (for example, **GATE**) and take the paper under its configured time limit. The importing account retains permission to edit or delete its source papers. Users only need their own normal app login; they do not need the uploader's credentials. Responses autosave, the database enforces deadlines and grading, answer keys appear only after completion, and attempt results are retained for performance analysis.
 
 ## One-time setup
 
@@ -8,16 +8,20 @@ Run these migrations in your project's Supabase SQL Editor, in order:
 
 1. [`202610070001_mock_question_bank.sql`](../supabase/migrations/202610070001_mock_question_bank.sql) — tables, import function, and image bucket.
 2. [`202610070002_shared_mock_question_bank.sql`](../supabase/migrations/202610070002_shared_mock_question_bank.sql) — shared read access, uploader-only writes, normalized exam codes, and exam selection.
+3. [`202610070003_mock_admin_api.sql`](../supabase/migrations/202610070003_mock_admin_api.sql) — admin API support.
+4. [`202610070004_timed_mock_exams.sql`](../supabase/migrations/202610070004_timed_mock_exams.sql) — private attempt snapshots, server-enforced timers, response saving, grading, and history.
+5. [`202610080004_timed_mock_exam_exp.sql`](../supabase/migrations/202610080004_timed_mock_exam_exp.sql) — atomic rewards of up to 2,500 EXP, with coverage and personal-best safeguards plus duplicate-award protection.
 
-If the first migration is already installed, run only the second. For a full re-run, always run both in order: the original migration installs the initial owner-only policies. The shared migration also makes existing papers and images visible to all signed-in users without re-importing. Neither migration changes score logs or study progress.
+Apply any missing migrations in order. The timed migration replaces direct shared question reads with a safe catalog and database functions, so active tests cannot read answer keys from the browser. Existing papers do not need to be re-imported.
 
 The resulting setup includes:
 
 - `mock_papers`: owner, stable source key, title, exam, **year**, subject, duration, source URL, JSON metadata.
 - `mock_questions`: paper, number, type, question text, options, correct option IDs or numerical answer range, marks, explanation, JSON metadata, image references.
 - `mock-question-images`: a **private Supabase Storage bucket** for the actual image bytes. All signed-in users can read these images via signed URLs. JSON/DB rows hold object paths, not blobs or expiring URLs.
-- `import_mock_paper`: a transactional import function, accessible only to authenticated users. RLS permits shared reads and restricts writes to the uploader.
+- `import_mock_paper`: a transactional import function, accessible only to authenticated users. RLS restricts source rows and writes to the uploader; other users receive the safe paper catalog and exam payloads through dedicated functions.
 - `list_mock_exams`: lists distinct exams across the shared bank. GATE is always available in the app's exam selector, even before its first import.
+- Timed exam functions: start or resume a fixed-deadline attempt, save validated responses, submit or time out, grade against a frozen paper snapshot, and list the signed-in user's attempt history.
 
 The web app uses the existing `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. No service-role key is needed. The migration must be applied to the same Supabase project as the app.
 
@@ -25,7 +29,7 @@ The web app uses the existing `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABA
 
 > Read docs/mock-question-bank.md and public/mock-paper.example.json. Extract the supplied question paper and answer key into a schema_version 1 JSON manifest. Set paper.exam to "GATE" for GATE papers, and put the branch/subject in paper.subject. Preserve original numbering, question wording, option labels, equations, diagrams, year, and source details. Save image crops inside the paper folder and reference them with relative file paths. Do not invent missing answers or silently omit diagrams. Flag uncertain extraction for review before importing. Run the dry-run validator, fix errors, then import with the configured uploader account. Uploaded content is shared with every signed-in user.
 
-The scraper/extractor is supplied by you or your AI; this project provides validation, uploads, persistence, and browsing. Plain text, line breaks, Unicode equations, and raw LaTeX strings are retained; the current reader displays text without executing HTML or rendering LaTeX. Crop complex formulae as images if needed.
+The scraper/extractor is supplied by you or your AI; this project provides validation, uploads, persistence, timed delivery, and grading. Plain text, line breaks, Unicode equations, and raw LaTeX strings are retained; the exam screen displays text without executing HTML or rendering LaTeX. Crop complex formulae as images if needed.
 
 Recommended folder layout:
 
@@ -62,7 +66,7 @@ For an option that is entirely an image:
 
 Download/crop images locally first. Remote URLs, base64 blobs, absolute paths, and paths outside the paper folder are not accepted by the importer. Use PNG, JPEG, WebP, or GIF, at most 5 MB per image and 100 MB per import. PDF/SVG crops must be converted to a supported raster format. Up to 20 images are allowed per question/option.
 
-The importer checks file signatures, uploads to `<uploader-id>/<sha256-of-bytes>.<extension>`, and stores `{ "path": "...", "alt": "..." }` in the database. Repeated bytes from the same uploader reuse the same object. Every signed-in user can obtain temporary signed image URLs (one hour); use Refresh if a long-open page's images expire. The bucket stays private to anonymous visitors. See [Supabase private buckets](https://supabase.com/docs/guides/storage/buckets/fundamentals).
+The importer checks file signatures, uploads to `<uploader-id>/<sha256-of-bytes>.<extension>`, and stores `{ "path": "...", "alt": "..." }` in the database. Repeated bytes from the same uploader reuse the same object. Every signed-in user can obtain temporary signed image URLs; the exam screen signs them for up to one day so they remain visible throughout long tests. The bucket stays private to anonymous visitors. See [Supabase private buckets](https://supabase.com/docs/guides/storage/buckets/fundamentals).
 
 ## Manifest rules
 
@@ -102,7 +106,7 @@ node scripts/import-mock-paper.mjs public/mock-paper.example.json --dry-run
 
 ## Authenticate and import
 
-Use your app account as the uploader. Its email/password authorize uploads and later edits; they do not limit who can read the papers. Everyone else just selects **Mock tests → GATE** using their own app account. Put uploader credentials in an ignored `.env.import.local` file; `.env*` is already gitignored. Do not paste credentials into manifests, commit them, or add them to browser-facing `NEXT_PUBLIC_*` variables.
+Use your app account as the uploader. Its email/password authorize uploads and later edits; they do not limit who can take the papers. Everyone else just selects **Mock tests → GATE** using their own app account. Put uploader credentials in an ignored `.env.import.local` file; `.env*` is already gitignored. Do not paste credentials into manifests, commit them, or add them to browser-facing `NEXT_PUBLIC_*` variables.
 
 ```dotenv
 MOCK_IMPORT_EMAIL=your-account-email
@@ -115,7 +119,7 @@ Alternatively, supply `SUPABASE_ACCESS_TOKEN` containing a valid **user session 
 node --env-file=.env.local --env-file=.env.import.local scripts/import-mock-paper.mjs ./papers/gate-cs-2025-session-1/paper.json
 ```
 
-In any signed-in account, open **Mock tests → Exam: GATE → Refresh → Browse questions**. Select a different exam to browse its papers. Questions, diagrams, answer keys, and metadata are shared.
+In any signed-in account, open **Mock tests → Exam: GATE → Start test**. Select a different exam to view its papers. The test shows one question at a time, a fixed timer, response status, review flags, and a question navigator. Submission opens the scored result and answer review.
 
 Imports merge by `(uploader user_id, source_key)` and `(paper_id, question_number)`. Use the same uploader account when updating a paper; another account importing the same source key creates a separate paper instead of overwriting it. Re-importing updates all supplied fields for those rows for every reader; omitted optional fields use defaults. Questions absent from the new file are **retained**, so large papers can be imported in chunks. This operation does not delete old questions or score history.
 
@@ -132,7 +136,7 @@ await supabase.rpc("import_mock_paper", {
 })
 ```
 
-The RPC derives write ownership from the session; it does not accept a user ID override. All authenticated accounts can read papers and questions, while insert/update/delete policies require uploader ownership. Image uploads still require the uploader's folder; image reads allow signed-in users to read the shared bucket. Schema checks enforce valid options, answer cardinality, image path ownership, and same-uploader paper/question relationships even for direct database inserts. A direct client must upload referenced blobs first; the database validates paths but does not verify blob existence. Avoid storing signed URLs, which expire.
+The RPC derives write ownership from the session; it does not accept a user ID override. Uploaders can read and edit their source rows. Other authenticated accounts see the limited paper catalog and receive question prompts through the timed exam functions; answer keys are returned only for completed attempts. Image uploads still require the uploader's folder, while signed-in users can read referenced images. Schema checks enforce valid options, answer cardinality, image path ownership, and same-uploader paper/question relationships even for direct database inserts. A direct client must upload referenced blobs first; the database validates paths but does not verify blob existence. Avoid storing signed URLs, which expire.
 
 ## Verification
 

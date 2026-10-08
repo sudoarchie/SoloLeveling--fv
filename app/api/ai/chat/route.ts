@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   // ── 5. Fetch all user data in parallel ─────────────────
   const today = new Date().toISOString().split("T")[0]
 
-  const [progressRes, reportsRes, attemptsRes, topicsRes, streakRes, insightRes] =
+  const [progressRes, reportsRes, attemptsRes, timedAttemptsRes, topicsRes, streakRes, insightRes] =
     await Promise.all([
       supabase
         .from("user_progress")
@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
         .eq("user_id", user.id)
         .order("attempted_at", { ascending: false })
         .limit(50),
+      supabase.rpc("list_mock_exam_attempts"),
       supabase.from("revision_topics").select("*").eq("user_id", user.id),
       supabase
         .from("streaks")
@@ -90,10 +91,26 @@ export async function POST(req: NextRequest) {
         .maybeSingle(),
     ])
 
+  const timedAttempts = Array.isArray(timedAttemptsRes.data)
+    ? timedAttemptsRes.data
+        .filter((attempt: any) => attempt.status === "completed" && Number(attempt.total_marks) > 0)
+        .map((attempt: any) => ({
+          mock_exams: { name: attempt.title },
+          marks_obtained: Number(attempt.score),
+          total_marks: Number(attempt.total_marks),
+          score_pct: (Number(attempt.score) / Number(attempt.total_marks)) * 100,
+          attempted_at: attempt.completed_at ?? attempt.started_at,
+        }))
+    : []
+
+  const allAttempts = [...(attemptsRes.data ?? []), ...timedAttempts]
+    .sort((a: any, b: any) => new Date(b.attempted_at).getTime() - new Date(a.attempted_at).getTime())
+    .slice(0, 50)
+
   const ctx: UserContext = {
     progress: progressRes.data,
     reports: reportsRes.data ?? [],
-    attempts: attemptsRes.data ?? [],
+    attempts: allAttempts,
     topics: topicsRes.data ?? [],
     streak: streakRes.data,
   }

@@ -50,6 +50,8 @@ export interface MockResult {
   correct: number
   incorrect: number
   unanswered: number
+  exp_gained: number
+  is_personal_best: boolean
   question_results: Record<string, { status: "correct" | "incorrect" | "unanswered"; awarded_marks: number }>
 }
 
@@ -64,6 +66,8 @@ export interface MockAttemptSummary {
   completed_at: string | null
   score: number | null
   total_marks: number | null
+  exp_gained: number
+  is_personal_best: boolean
 }
 
 export interface MockAttempt extends Omit<MockAttemptSummary, "score" | "total_marks"> {
@@ -93,7 +97,7 @@ export function formatExamTime(seconds: number) {
 
 export function questionBankError(error: { code?: string; message: string }) {
   if (["PGRST205", "PGRST202", "42P01", "42883"].includes(error.code ?? "")) {
-    return "Mock tests need their database setup. Apply the migrations through 202610070004_timed_mock_exams.sql in the project’s setup guide, then refresh."
+    return "Mock tests need their database setup. Apply all migrations through 202610080004_timed_mock_exam_exp.sql in the project’s setup guide, then refresh."
   }
   return error.message
 }

@@ -615,8 +615,8 @@ export default function GATETracker() {
       description: "See how your preparation is coming together.",
     },
     mocks: {
-      title: "Find your next practice paper.",
-      description: "Choose an exam and explore questions, diagrams, and answers.",
+      title: "Take a real timed mock.",
+      description: "Solve under exam conditions and earn the biggest EXP reward.",
     },
     mentor: {
       title: "Your AI study coach.",

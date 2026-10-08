@@ -2,9 +2,9 @@
 
 ## Mock question bank
 
-The **Mock tests** tab lets every signed-in user select an exam (GATE by default) and browse shared papers, questions, answer keys, year and metadata. Images are stored in Supabase Storage and readable by all signed-in users. AI tools can import JSON manifests and local image crops once for everyone.
+The **Mock tests** tab lets every signed-in user take shared papers under a database-enforced time limit. Responses autosave, tests submit automatically when time expires, results are graded after submission, and attempt history is stored for performance analysis. A timed mock awards up to 750 EXP for question coverage, up to 1,000 EXP for the score, and 750 EXP for a new personal best, making it the app's largest points reward. Answer keys remain hidden while a test is active.
 
-See [the setup and AI import guide](docs/mock-question-bank.md). For a new Supabase project, apply `202610070001_mock_question_bank.sql`, `202610070002_shared_mock_question_bank.sql`, and `202610070003_mock_admin_api.sql` from `supabase/migrations` in order. The third migration supports the [admin API](docs/mock-admin-api.md) for creating exams and importing papers. All three are installed in the `solo` project.
+See [the setup and AI import guide](docs/mock-question-bank.md). Apply every file in `supabase/migrations` in filename order. The timed exam migrations add secure attempts, grading, history, result storage, and atomic EXP rewards.
 
 ```sh
 node scripts/import-mock-paper.mjs public/mock-paper.example.json --dry-run
