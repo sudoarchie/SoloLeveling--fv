@@ -38,6 +38,7 @@ import {
 import {
   ArrowRight,
   BookOpen,
+  Brain,
   CalendarDays,
   Check,
   Clock3,
@@ -89,6 +90,8 @@ import { ReviewSchedule } from "@/components/ReviewSchedule"
 import SubmissionPopup, { type LootDrop } from "@/components/SubmissionPopup"
 import { useUserData, type DailyReport } from "@/hooks/useUserData"
 import { useTheme } from "next-themes"
+import { AIMentor } from "@/components/AIMentor"
+import { DailyInsight } from "@/components/DailyInsight"
 
 interface RankInfo {
   name: string
@@ -615,6 +618,10 @@ export default function GATETracker() {
       title: "Find your next practice paper.",
       description: "Choose an exam and explore questions, diagrams, and answers.",
     },
+    mentor: {
+      title: "Your AI study coach.",
+      description: "Personalized analysis, strategy, and guidance powered by AI.",
+    },
   }
 
   return (
@@ -663,12 +670,13 @@ export default function GATETracker() {
           </p>
           <TabsList
             aria-label="Workspace navigation"
-            className="grid h-auto w-full grid-cols-4 gap-1 bg-transparent p-0 lg:flex lg:flex-col lg:items-stretch"
+            className="grid h-auto w-full grid-cols-5 gap-1 bg-transparent p-0 lg:flex lg:flex-col lg:items-stretch"
           >
             {[
               { value: "today", label: "Today", icon: LayoutDashboard },
               { value: "reviews", label: "Reviews", icon: BookOpen },
               { value: "mocks", label: "Mock tests", icon: FileQuestion },
+              { value: "mentor", label: "AI Mentor", icon: Brain },
               { value: "progress", label: "Progress", icon: BarChart3 },
             ].map(({ value, label, icon: Icon }) => (
               <TabsTrigger
@@ -755,7 +763,9 @@ export default function GATETracker() {
                 ? "Review schedule"
                 : activeView === "mocks"
                   ? "Mock tests"
-                  : "Your progress"}
+                  : activeView === "mentor"
+                    ? "AI Mentor"
+                    : "Your progress"}
           </span>
           <div className="flex items-center gap-2">
             <Button
@@ -796,6 +806,10 @@ export default function GATETracker() {
           </div>
 
           <TabsContent value="today" className="mt-0 space-y-7">
+            <DailyInsight
+              plan={progress.plan}
+              onOpenChat={() => changeView("mentor")}
+            />
             <div className="grid grid-cols-3 divide-x rounded-xl border bg-card py-5">
               <div className="px-4 sm:px-6">
                 <p className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -883,6 +897,10 @@ export default function GATETracker() {
 
           <TabsContent value="mocks" className="mt-0">
             <MockQuestionBank />
+          </TabsContent>
+
+          <TabsContent value="mentor" className="mt-0">
+            <AIMentor />
           </TabsContent>
 
           <TabsContent value="progress" className="mt-0 space-y-6">

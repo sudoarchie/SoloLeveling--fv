@@ -24,6 +24,8 @@ export interface UserProgress {
   unlockedTitles: string[]
   activeTitle: string | null
   unlockedCosmetics: string[]
+  plan: "free" | "pro"
+  customPrompt: string
 }
 
 const DEFAULT_PROGRESS: UserProgress = {
@@ -34,6 +36,8 @@ const DEFAULT_PROGRESS: UserProgress = {
   unlockedTitles: [],
   activeTitle: null,
   unlockedCosmetics: [],
+  plan: "free",
+  customPrompt: "",
 }
 
 /**
@@ -80,6 +84,8 @@ export function useUserData() {
         unlockedTitles: progressRow.unlocked_titles ?? [],
         activeTitle: progressRow.active_title ?? null,
         unlockedCosmetics: progressRow.unlocked_cosmetics ?? [],
+        plan: progressRow.plan ?? "free",
+        customPrompt: progressRow.custom_prompt ?? "",
       })
       progressRef.current = {
         currentExp: progressRow.current_exp ?? 0,
@@ -91,6 +97,8 @@ export function useUserData() {
         unlockedTitles: progressRow.unlocked_titles ?? [],
         activeTitle: progressRow.active_title ?? null,
         unlockedCosmetics: progressRow.unlocked_cosmetics ?? [],
+        plan: progressRow.plan ?? "free",
+        customPrompt: progressRow.custom_prompt ?? "",
       }
     } else {
       // Fallback for users created before the trigger existed
@@ -155,6 +163,8 @@ export function useUserData() {
         unlockedTitles: "unlocked_titles",
         activeTitle: "active_title",
         unlockedCosmetics: "unlocked_cosmetics",
+        plan: "plan",
+        customPrompt: "custom_prompt",
       }
 
       const update: Record<string, any> = {
