@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { createClient } from "@/utils/supabase/client"
 import { toast } from "sonner"
+import { format, isSameDay } from "date-fns"
 
 export type PomodoroPreset = "25" | "90" | "180" | "custom"
 export type PomodoroStatus = "idle" | "running" | "paused" | "completed"
@@ -43,6 +44,22 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
   },
   {
     id: "pomodoro-seed-2",
+    preset: "180",
+    durationMinutes: 180,
+    description: "Operating Systems & Computer Networks Deep Focus Block",
+    completedAt: "2026-10-20T14:15:00.000Z",
+    expAwarded: 250,
+  },
+  {
+    id: "pomodoro-seed-3",
+    preset: "90",
+    durationMinutes: 90,
+    description: "DSA & Algorithms Problem Practice",
+    completedAt: "2026-10-20T11:45:00.000Z",
+    expAwarded: 120,
+  },
+  {
+    id: "pomodoro-seed-4",
     preset: "25",
     durationMinutes: 25,
     description: "Revision dsa notes",
@@ -50,11 +67,27 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
     expAwarded: 30,
   },
   {
-    id: "pomodoro-seed-3",
+    id: "pomodoro-seed-5",
+    preset: "25",
+    durationMinutes: 25,
+    description: "Revision dsa notes - Quick recall",
+    completedAt: "2026-10-20T10:15:00.000Z",
+    expAwarded: 30,
+  },
+  {
+    id: "pomodoro-seed-6",
     preset: "90",
-    durationMinutes: 22,
-    description: "Revision dsa notes",
+    durationMinutes: 25,
+    description: "Revision dsa notes & PYQ review",
     completedAt: "2026-10-20T09:38:00.000Z",
+    expAwarded: 30,
+  },
+  {
+    id: "pomodoro-seed-7",
+    preset: "25",
+    durationMinutes: 25,
+    description: "Formula review & concepts",
+    completedAt: "2026-10-20T08:30:00.000Z",
     expAwarded: 30,
   },
 ]
@@ -223,6 +256,106 @@ export function usePomodoro() {
     }
   }, [])
 
+  // Auto-verify and reconcile today's focus EXP with PostgreSQL on mount
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    let cancelled = false
+
+    const syncTodayFocusExp = async () => {
+      try {
+        const supabase = createClient()
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (!user || cancelled) return
+
+        const todayStr = format(new Date(), "yyyy-MM-dd")
+        const rawHistory = localStorage.getItem(STORAGE_KEY_HISTORY)
+        const parsed: PomodoroSessionRecord[] = rawHistory
+          ? JSON.parse(rawHistory)
+          : DEFAULT_SEEDED_SESSIONS
+        if (!Array.isArray(parsed)) return
+
+        const todaySes = parsed.filter(
+          (h) => h.completedAt && isSameDay(new Date(h.completedAt), new Date()),
+        )
+        const todayExp = todaySes.reduce((acc, s) => acc + (s.expAwarded || 0), 0)
+        const todayMins = todaySes.reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
+        const todayHours = Number((todayMins / 60).toFixed(1))
+
+        if (todayExp <= 0) return
+
+        const { data: todayReport } = await supabase
+          .from("daily_reports")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("report_date", todayStr)
+          .maybeSingle()
+
+        if (!todayReport) {
+          await supabase.from("daily_reports").insert({
+            user_id: user.id,
+            report_date: todayStr,
+            practice_hours: todayHours,
+            exp_gained: todayExp,
+            lectures_completed: 0,
+            topics_revised: 0,
+            morning_session: false,
+            exercise_done: false,
+            distractions_level: "None",
+          })
+          const { data: prog } = await supabase
+            .from("user_progress")
+            .select("current_exp")
+            .eq("user_id", user.id)
+            .maybeSingle()
+          await supabase
+            .from("user_progress")
+            .update({
+              current_exp: (prog?.current_exp ?? 0) + todayExp,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("user_id", user.id)
+          window.dispatchEvent(new CustomEvent("user-progress-changed"))
+        } else if ((todayReport.exp_gained || 0) < todayExp) {
+          // If exp_gained is less than focus exp, reconcile the deficit
+          const deficit = todayExp - (todayReport.exp_gained || 0)
+          const nextExp = (todayReport.exp_gained || 0) + deficit
+          const nextHours = Math.max(Number(todayReport.practice_hours || 0), todayHours)
+          await supabase
+            .from("daily_reports")
+            .update({
+              exp_gained: nextExp,
+              practice_hours: nextHours,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", todayReport.id)
+
+          const { data: prog } = await supabase
+            .from("user_progress")
+            .select("current_exp")
+            .eq("user_id", user.id)
+            .maybeSingle()
+          await supabase
+            .from("user_progress")
+            .update({
+              current_exp: (prog?.current_exp ?? 0) + deficit,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("user_id", user.id)
+          window.dispatchEvent(new CustomEvent("user-progress-changed"))
+        }
+      } catch (err) {
+        console.warn("Pomodoro auto-sync check notice:", err)
+      }
+    }
+
+    void syncTodayFocusExp()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Sync across tabs / window events
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
@@ -347,7 +480,7 @@ export function usePomodoro() {
             .eq("user_id", user.id)
 
           // 2. Also update today's daily_reports (practice_hours & exp_gained)
-          const todayStr = new Date().toISOString().split("T")[0]
+          const todayStr = format(new Date(), "yyyy-MM-dd")
           const addedHours = Number((mins / 60).toFixed(1))
 
           const { data: todayReport } = await supabase
@@ -622,8 +755,9 @@ export function usePomodoro() {
   const progressPct =
     totalSeconds > 0 ? Math.min(100, Math.max(0, ((totalSeconds - timeLeft) / totalSeconds) * 100)) : 0
 
-  const todayStr = new Date().toISOString().split("T")[0]
-  const todaySessions = history.filter((h) => h.completedAt.startsWith(todayStr))
+  const todaySessions = history.filter(
+    (h) => h.completedAt && isSameDay(new Date(h.completedAt), new Date()),
+  )
   const todayFocusMinutes = todaySessions.reduce((acc, s) => acc + s.durationMinutes, 0)
   const todayExpEarned = todaySessions.reduce((acc, s) => acc + s.expAwarded, 0)
 

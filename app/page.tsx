@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/utils/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -343,20 +343,22 @@ export default function GATETracker() {
     }
   }, [selectedTheme])
 
-  // Calculate EXP gain
-  const calculateExp = useCallback(
-    (data: {
-      lecturesCompleted: number
-      topicsRevised: number
-      practiceHours: number
-      morningSession: boolean
-      exerciseDone: boolean
-      distractionsLevel: string
-    }) => {
+  // Calculate EXP gain exclusively from manual log inputs
+  const calculateFormExp = useCallback(
+    (
+      data: {
+        lecturesCompleted: number
+        topicsRevised: number
+        morningSession: boolean
+        exerciseDone: boolean
+        distractionsLevel: string
+      },
+      extraPracticeHours = 0,
+    ) => {
       let exp = 0
-      exp += data.lecturesCompleted * 50
-      exp += data.topicsRevised * 30
-      exp += data.practiceHours * 100
+      exp += (data.lecturesCompleted || 0) * 50
+      exp += (data.topicsRevised || 0) * 30
+      exp += Math.max(0, extraPracticeHours) * 100
       exp += data.morningSession ? 50 : 0
       exp += data.exerciseDone ? 30 : 0
 
@@ -377,25 +379,29 @@ export default function GATETracker() {
     [],
   )
 
-  // Handle form submission
+  // Handle form submission non-destructively: preserve Focus, Quest, and Mock test EXP
   const handleSubmit = async () => {
     try {
-      const expGained = calculateExp(formData)
-      const newReport: DailyReport = {
-        date: new Date(),
-        ...formData,
-        expGained,
-      }
+      const todayReport = dailyReports.find((report) =>
+        isSameDay(report.date, new Date()),
+      )
 
-      const oldRank = currentRank
-      const previousExp =
-        dailyReports.find((report) => isSameDay(report.date, newReport.date))
-          ?.expGained ?? 0
-      await saveReport(newReport)
-      await setCurrentExp((prev) => Math.max(0, prev + expGained - previousExp))
+      // 1. Calculate how much EXP was contributed by the previous manual form
+      const existingPracticeHours = todayReport?.practiceHours ?? 0
+      const prevManualExp = todayReport
+        ? calculateFormExp(todayReport, 0)
+        : 0
 
-      // Feed studied topics into spaced repetition:
-      // existing topics advance their review schedule, new ones enter the system
+      // 2. Extra manual practice hours beyond existing tracked focus hours
+      const extraPractice = Math.max(0, formData.practiceHours - existingPracticeHours)
+      const newManualExp = calculateFormExp(formData, extraPractice)
+
+      // 3. Other sources EXP (Focus Pomodoro sessions, Quests, Mock tests) already earned today
+      const otherSourcesExp = todayReport
+        ? Math.max(0, todayReport.expGained - prevManualExp)
+        : 0
+
+      // Feed studied topics into spaced repetition
       let topicFeedback = { reviewed: 0, added: 0, exp: 0 }
       if (studiedTopics.length > 0) {
         topicFeedback = await spacedRepetition.logStudiedTopics(
@@ -415,24 +421,42 @@ export default function GATETracker() {
         })
       }
 
-      // Include experience earned by the topic review schedule.
-      if (topicFeedback.exp > 0)
-        await setCurrentExp((prev) => prev + topicFeedback.exp)
+      // 4. Final total EXP for today: other sources + new manual form EXP + topic review EXP
+      const finalExpGained = otherSourcesExp + newManualExp + topicFeedback.exp
+
+      // 5. Delta added to user_progress.currentExp
+      const expDelta = newManualExp - prevManualExp + topicFeedback.exp
+
+      // 6. Practice hours: preserve at least existing focus hours
+      const finalPracticeHours = Math.max(formData.practiceHours, existingPracticeHours)
+
+      const newReport: DailyReport = {
+        date: new Date(),
+        ...formData,
+        practiceHours: finalPracticeHours,
+        expGained: finalExpGained,
+      }
+
+      const oldRank = currentRank
+      await saveReport(newReport)
+      if (expDelta !== 0) {
+        await setCurrentExp((prev) => Math.max(0, prev + expDelta))
+      }
 
       // Play sound effects
       if (soundEnabled) {
         sounds.formSubmit()
-        if (expGained > 0) {
+        if (newManualExp > 0 || topicFeedback.exp > 0) {
           setTimeout(() => sounds.expGain(), 200)
         }
       }
 
-      // Show the submission popup with variable-reward loot roll
-      setLastExpGained(expGained)
+      // Show the submission popup with the exp gained from this log session
+      setLastExpGained(Math.max(0, newManualExp + topicFeedback.exp))
       setShowSubmissionPopup(true)
 
       // Check for rank up
-      const newExp = currentExp + expGained - previousExp + topicFeedback.exp
+      const newExp = currentExp + expDelta
       const newRank =
         ranks.find((rank) => newExp >= rank.minExp && newExp < rank.maxExp) ||
         ranks[ranks.length - 1]
@@ -474,6 +498,14 @@ export default function GATETracker() {
       })
     }
   }
+
+  // Calculate live preview of EXP that this log entry will add
+  const formExpPreview = useMemo(() => {
+    const todayReport = dailyReports.find((r) => isSameDay(r.date, new Date()))
+    const existingPractice = todayReport?.practiceHours ?? 0
+    const extraPractice = Math.max(0, formData.practiceHours - existingPractice)
+    return calculateFormExp(formData, extraPractice)
+  }, [calculateFormExp, dailyReports, formData])
 
   // Apply claimed loot: bonus EXP + reward effects (titles, cosmetics, streak freezes)
   const handleLootClaimed = (loot: LootDrop) => {
@@ -894,7 +926,7 @@ export default function GATETracker() {
                   setFormData((prev) => ({ ...prev, ...patch }))
                 }
                 onLogSubmit={handleSubmit}
-                expPreview={calculateExp(formData)}
+                expPreview={formExpPreview}
                 studiedTopics={studiedTopics}
                 onStudiedTopicsChange={setStudiedTopics}
                 topicDifficulty={topicDifficulty}
