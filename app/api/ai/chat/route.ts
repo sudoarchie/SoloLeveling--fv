@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
-  const { messages } = body
+  const { messages, activePomodoro, chatMemory, sessionId, sessionTitle } = body
   if (!Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ error: "messages array required" }, { status: 400 })
   }
@@ -57,39 +57,69 @@ export async function POST(req: NextRequest) {
   // ── 5. Fetch all user data in parallel ─────────────────
   const today = new Date().toISOString().split("T")[0]
 
-  const [progressRes, reportsRes, attemptsRes, timedAttemptsRes, topicsRes, streakRes, insightRes] =
-    await Promise.all([
-      supabase
-        .from("user_progress")
-        .select("*")
-        .eq("user_id", user.id)
-        .single(),
-      supabase
-        .from("daily_reports")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("report_date", { ascending: false })
-        .limit(30),
-      supabase
-        .from("mock_test_attempts")
-        .select("*, mock_exams(name)")
-        .eq("user_id", user.id)
-        .order("attempted_at", { ascending: false })
-        .limit(50),
-      supabase.rpc("list_mock_exam_attempts"),
-      supabase.from("revision_topics").select("*").eq("user_id", user.id),
-      supabase
-        .from("streaks")
-        .select("*")
-        .eq("user_id", user.id)
-        .maybeSingle(),
-      supabase
-        .from("ai_daily_insights")
-        .select("content")
-        .eq("user_id", user.id)
-        .eq("insight_date", today)
-        .maybeSingle(),
-    ])
+  const [
+    progressRes,
+    reportsRes,
+    attemptsRes,
+    timedAttemptsRes,
+    topicsRes,
+    streakRes,
+    insightRes,
+    chatSessionsRes,
+    pomodoroRes,
+  ] = await Promise.all([
+    supabase
+      .from("user_progress")
+      .select("*")
+      .eq("user_id", user.id)
+      .single(),
+    supabase
+      .from("daily_reports")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("report_date", { ascending: false })
+      .limit(30),
+    supabase
+      .from("user_mock_attempts")
+      .select("*, user_mock_exams(name)")
+      .eq("user_id", user.id)
+      .order("attempted_at", { ascending: false })
+      .limit(50),
+    supabase.rpc("list_mock_exam_attempts"),
+    supabase.from("revision_topics").select("*").eq("user_id", user.id),
+    supabase
+      .from("streaks")
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("ai_daily_insights")
+      .select("content")
+      .eq("user_id", user.id)
+      .eq("insight_date", today)
+      .maybeSingle(),
+    supabase
+      .from("ai_chat_sessions")
+      .select("id, title, messages, summary, updated_at")
+      .eq("user_id", user.id)
+      .order("updated_at", { ascending: false })
+      .limit(10)
+      .catch?.(() => ({ data: null })) ?? Promise.resolve({ data: null }),
+    supabase
+      .from("pomodoro_sessions")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("started_at", { ascending: false })
+      .limit(5)
+      .catch?.(() => ({ data: null })) ?? Promise.resolve({ data: null }),
+  ])
+
+  const userAttempts = Array.isArray(attemptsRes.data)
+    ? attemptsRes.data.map((attempt: any) => ({
+        ...attempt,
+        mock_exams: { name: attempt.user_mock_exams?.name ?? "Exam" },
+      }))
+    : []
 
   const timedAttempts = Array.isArray(timedAttemptsRes.data)
     ? timedAttemptsRes.data
@@ -103,7 +133,7 @@ export async function POST(req: NextRequest) {
         }))
     : []
 
-  const allAttempts = [...(attemptsRes.data ?? []), ...timedAttempts]
+  const allAttempts = [...userAttempts, ...timedAttempts]
     .sort((a: any, b: any) => new Date(b.attempted_at).getTime() - new Date(a.attempted_at).getTime())
     .slice(0, 50)
 
@@ -115,7 +145,64 @@ export async function POST(req: NextRequest) {
     streak: streakRes.data,
   }
 
-  // ── 6. Build prompt with today's insight as extra context
+  // ── 6. Assemble previous chat memory & Pomodoro focus context ───
+  let pastSessions: any[] = []
+  if (Array.isArray(chatMemory) && chatMemory.length > 0) {
+    pastSessions = chatMemory
+  } else if (chatSessionsRes?.data && Array.isArray(chatSessionsRes.data)) {
+    pastSessions = chatSessionsRes.data
+      .filter((s: any) => !sessionId || s.id !== sessionId)
+      .slice(0, 5)
+      .map((s: any) => {
+        const msgs = Array.isArray(s.messages) ? s.messages : []
+        const userMsg = msgs.find((m: any) => m.role === "user")
+        const assistantMsg = msgs.find((m: any) => m.role === "assistant")
+        return {
+          sessionId: s.id,
+          title: s.title,
+          date: s.updated_at ? new Date(s.updated_at).toLocaleDateString() : "",
+          summary: s.summary,
+          keyExchanges: [
+            ...(userMsg ? [{ role: "user", content: String(userMsg.content).slice(0, 250) }] : []),
+            ...(assistantMsg
+              ? [{ role: "assistant", content: String(assistantMsg.content).slice(0, 250) }]
+              : []),
+          ],
+        }
+      })
+  }
+
+  let pomodoroContext = activePomodoro || null
+  if (!pomodoroContext && pomodoroRes?.data && Array.isArray(pomodoroRes.data) && pomodoroRes.data.length > 0) {
+    const recent = pomodoroRes.data[0]
+    pomodoroContext = {
+      preset: recent.preset,
+      durationMinutes: recent.duration_minutes,
+      description: recent.description,
+      status: recent.completed ? "completed" : "active",
+      completedTodayCount: pomodoroRes.data.filter((p: any) => p.completed).length,
+      recentSessions: pomodoroRes.data.slice(0, 3).map((p: any) => ({
+        description: p.description,
+        durationMinutes: p.duration_minutes,
+        completedAt: p.started_at,
+      })),
+    }
+  }
+
+  // Optionally persist active session updates to ai_chat_sessions in background
+  if (sessionId) {
+    Promise.resolve(
+      supabase.from("ai_chat_sessions").upsert({
+        id: sessionId,
+        user_id: user.id,
+        title: sessionTitle || "Study Mentoring Session",
+        messages,
+        updated_at: new Date().toISOString(),
+      }),
+    ).catch(() => {})
+  }
+
+  // ── 7. Build prompt with today's insight, Pomodoro focus, and previous chat memory
   const fullMessages = buildChatPrompt(
     ctx,
     insightRes.data?.content ?? null,
@@ -123,6 +210,8 @@ export async function POST(req: NextRequest) {
       role: m.role as "user" | "assistant",
       content: String(m.content),
     })),
+    pomodoroContext,
+    pastSessions,
   )
 
   // ── 7. Stream LLM response back to client ──────────────

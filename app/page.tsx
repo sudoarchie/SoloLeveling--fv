@@ -53,6 +53,7 @@ import {
   LogOut,
   GraduationCap,
   FileQuestion,
+  Timer,
 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -92,6 +93,9 @@ import { useUserData, type DailyReport } from "@/hooks/useUserData"
 import { useTheme } from "next-themes"
 import { AIMentor } from "@/components/AIMentor"
 import { DailyInsight } from "@/components/DailyInsight"
+import { PomodoroTimer } from "@/components/PomodoroTimer"
+import { QuickFocusWidget } from "@/components/QuickFocusWidget"
+import { usePomodoro } from "@/hooks/usePomodoro"
 
 interface RankInfo {
   name: string
@@ -191,6 +195,10 @@ export default function GATETracker() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [showSubmissionPopup, setShowSubmissionPopup] = useState(false)
   const [lastExpGained, setLastExpGained] = useState(0)
+  const [mentorPrefill, setMentorPrefill] = useState<string | undefined>(undefined)
+
+  const { status: pomodoroStatus, timeLeft: pomodoroTimeLeft } = usePomodoro()
+  const isPomodoroRunning = pomodoroStatus === "running"
 
   // All persistent state lives in Supabase (user_progress + daily_reports)
   const {
@@ -606,6 +614,10 @@ export default function GATETracker() {
       title: "Make room for progress.",
       description: "One focused session at a time. Let’s make today count.",
     },
+    focus: {
+      title: "Deep work chamber.",
+      description: "25m, 90m, or 3-hour uninterrupted deep focus with live AI context.",
+    },
     reviews: {
       title: "Keep what you’ve learned.",
       description: "A little recall today makes tomorrow easier.",
@@ -670,10 +682,11 @@ export default function GATETracker() {
           </p>
           <TabsList
             aria-label="Workspace navigation"
-            className="grid h-auto w-full grid-cols-5 gap-1 bg-transparent p-0 lg:flex lg:flex-col lg:items-stretch"
+            className="grid h-auto w-full grid-cols-6 gap-1 bg-transparent p-0 lg:flex lg:flex-col lg:items-stretch"
           >
             {[
               { value: "today", label: "Today", icon: LayoutDashboard },
+              { value: "focus", label: "Focus", icon: Timer },
               { value: "reviews", label: "Reviews", icon: BookOpen },
               { value: "mocks", label: "Mock tests", icon: FileQuestion },
               { value: "mentor", label: "AI Mentor", icon: Brain },
@@ -686,6 +699,11 @@ export default function GATETracker() {
               >
                 <Icon className="hidden h-4 w-4 sm:block" />
                 <span>{label}</span>
+                {value === "focus" && isPomodoroRunning && (
+                  <span className="ml-auto hidden rounded-md bg-emerald-500/15 text-emerald-500 px-1.5 py-0.5 text-[11px] font-mono tabular-nums lg:inline">
+                    {Math.floor(pomodoroTimeLeft / 60)}m
+                  </span>
+                )}
                 {value === "reviews" && dueCount > 0 && (
                   <span className="ml-auto hidden rounded-md bg-primary/10 px-1.5 py-0.5 text-xs tabular-nums lg:inline">
                     {dueCount}
@@ -759,13 +777,15 @@ export default function GATETracker() {
           <span className="font-medium">
             {activeView === "today"
               ? "Today"
-              : activeView === "reviews"
-                ? "Review schedule"
-                : activeView === "mocks"
-                  ? "Mock tests"
-                  : activeView === "mentor"
-                    ? "AI Mentor"
-                    : "Your progress"}
+              : activeView === "focus"
+                ? "Deep Work Pomodoro"
+                : activeView === "reviews"
+                  ? "Review schedule"
+                  : activeView === "mocks"
+                    ? "Mock tests"
+                    : activeView === "mentor"
+                      ? "AI Mentor"
+                      : "Your progress"}
           </span>
           <div className="flex items-center gap-2">
             <Button
@@ -809,6 +829,13 @@ export default function GATETracker() {
             <DailyInsight
               plan={progress.plan}
               onOpenChat={() => changeView("mentor")}
+            />
+            <QuickFocusWidget
+              onOpenFocusTab={() => changeView("focus")}
+              onOpenAIMentor={(prefill) => {
+                setMentorPrefill(prefill)
+                changeView("mentor")
+              }}
             />
             <div className="grid grid-cols-3 divide-x rounded-xl border bg-card py-5">
               <div className="px-4 sm:px-6">
@@ -884,6 +911,15 @@ export default function GATETracker() {
             </div>
           </TabsContent>
 
+          <TabsContent value="focus" className="mt-0">
+            <PomodoroTimer
+              onOpenAIMentor={(prefill) => {
+                setMentorPrefill(prefill)
+                changeView("mentor")
+              }}
+            />
+          </TabsContent>
+
           <TabsContent value="reviews" className="mt-0">
             <ReviewSchedule
               dueTopics={spacedRepetition.dueTopics}
@@ -900,7 +936,7 @@ export default function GATETracker() {
           </TabsContent>
 
           <TabsContent value="mentor" className="mt-0">
-            <AIMentor />
+            <AIMentor prefillPrompt={mentorPrefill} />
           </TabsContent>
 
           <TabsContent value="progress" className="mt-0 space-y-6">

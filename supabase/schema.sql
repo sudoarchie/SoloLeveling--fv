@@ -102,29 +102,39 @@ create table if not exists public.daily_reports (
   unique (user_id, report_date)
 );
 
--- 3d. Mock tests ------------------------------------------------
--- User-defined exams (e.g. "GATE CS Full Mock", "Made Easy Test 3")
+-- 3d. User mock tests ------------------------------------------
+-- User-defined exams (e.g. "GATE CS Full Mock", "Made Easy Subject Test")
 -- with scored attempts. EXP is awarded per attempt, weighted by
 -- score percentage — higher scores earn more points.
-create table if not exists public.mock_exams (
+create table if not exists public.user_mock_exams (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
-  total_marks integer not null default 100,
+  exam_type text not null default 'full_paper' check (exam_type in ('full_paper', 'subject_wise', 'topic_test')),
+  subject text default null,
+  platform text default null,
+  total_marks numeric(6,2) not null default 100,
   created_at timestamptz not null default now(),
   unique (user_id, name)
 );
 
-create table if not exists public.mock_test_attempts (
+create table if not exists public.user_mock_attempts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  exam_id uuid not null references public.mock_exams(id) on delete cascade,
+  exam_id uuid not null references public.user_mock_exams(id) on delete cascade,
   marks_obtained numeric(6,2) not null,
-  total_marks integer not null,
+  total_marks numeric(6,2) not null,
   -- Percentage score, stored for easy sorting/analytics
   score_pct numeric(5,2) not null,
+  time_spent_minutes integer default null,
+  total_questions integer default null,
+  questions_attempted integer default null,
+  questions_correct integer default null,
+  questions_incorrect integer default null,
+  accuracy_pct numeric(5,2) default null,
   -- EXP awarded for this attempt
   exp_gained integer not null default 0,
+  notes text default null,
   attempted_at timestamptz not null default now()
 );
 
@@ -135,8 +145,8 @@ alter table public.quest_log enable row level security;
 alter table public.revision_topics enable row level security;
 alter table public.user_progress enable row level security;
 alter table public.daily_reports enable row level security;
-alter table public.mock_exams enable row level security;
-alter table public.mock_test_attempts enable row level security;
+alter table public.user_mock_exams enable row level security;
+alter table public.user_mock_attempts enable row level security;
 
 -- 5. Policies: users can only touch their own rows ------------
 drop policy if exists "Users can CRUD own quests" on public.daily_quests;
@@ -175,15 +185,15 @@ create policy "Users can CRUD own daily reports"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
-drop policy if exists "Users can CRUD own mock exams" on public.mock_exams;
-create policy "Users can CRUD own mock exams"
-  on public.mock_exams for all
+drop policy if exists "Users can CRUD own user_mock_exams" on public.user_mock_exams;
+create policy "Users can CRUD own user_mock_exams"
+  on public.user_mock_exams for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
-drop policy if exists "Users can CRUD own mock attempts" on public.mock_test_attempts;
-create policy "Users can CRUD own mock attempts"
-  on public.mock_test_attempts for all
+drop policy if exists "Users can CRUD own user_mock_attempts" on public.user_mock_attempts;
+create policy "Users can CRUD own user_mock_attempts"
+  on public.user_mock_attempts for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
@@ -216,9 +226,9 @@ create index if not exists idx_revision_topics_user_next
   on public.revision_topics (user_id, next_review_date);
 create index if not exists idx_daily_reports_user_date
   on public.daily_reports (user_id, report_date desc);
-create index if not exists idx_mock_exams_user
-  on public.mock_exams (user_id, created_at);
-create index if not exists idx_mock_attempts_user
-  on public.mock_test_attempts (user_id, attempted_at desc);
-create index if not exists idx_mock_attempts_exam
-  on public.mock_test_attempts (exam_id, attempted_at desc);
+create index if not exists idx_user_mock_exams_user
+  on public.user_mock_exams (user_id, created_at);
+create index if not exists idx_user_mock_attempts_user
+  on public.user_mock_attempts (user_id, attempted_at desc);
+create index if not exists idx_user_mock_attempts_exam
+  on public.user_mock_attempts (exam_id, attempted_at desc);

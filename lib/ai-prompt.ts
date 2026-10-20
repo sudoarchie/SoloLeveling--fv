@@ -223,10 +223,37 @@ riskLevel must be "low", "medium", or "high" based on overall exam readiness.`,
 
 // ── Chat prompt (for live conversation) ────────────────────
 
+export interface PomodoroFocusContext {
+  preset?: string
+  durationMinutes?: number
+  description?: string
+  status?: string
+  timeLeftSeconds?: number
+  completedTodayCount?: number
+  recentSessions?: Array<{
+    description: string
+    durationMinutes: number
+    completedAt?: string
+  }>
+}
+
+export interface ChatMemorySession {
+  sessionId?: string
+  title?: string
+  date?: string
+  summary?: string
+  keyExchanges?: Array<{
+    role: string
+    content: string
+  }>
+}
+
 export function buildChatPrompt(
   ctx: UserContext,
   todayInsight: string | null,
   userMessages: ChatMessage[],
+  activePomodoro?: PomodoroFocusContext | null,
+  chatMemory?: ChatMemorySession[] | null,
 ): ChatMessage[] {
   let system = buildBaseContext(ctx)
 
@@ -234,6 +261,82 @@ export function buildChatPrompt(
     system += `\n\n═══ TODAY'S PRE-GENERATED BRIEFING ═══
 The student already has this daily briefing. Reference it naturally but don't repeat it verbatim:
 ${todayInsight}`
+  }
+
+  // Inject active or recent Pomodoro session context so the AI has a clear idea of what the user is doing
+  if (
+    activePomodoro &&
+    (activePomodoro.description?.trim() ||
+      activePomodoro.status === "running" ||
+      activePomodoro.status === "paused" ||
+      (activePomodoro.completedTodayCount && activePomodoro.completedTodayCount > 0))
+  ) {
+    const minsLeft =
+      typeof activePomodoro.timeLeftSeconds === "number"
+        ? Math.floor(activePomodoro.timeLeftSeconds / 60)
+        : null
+    const secsLeft =
+      typeof activePomodoro.timeLeftSeconds === "number"
+        ? activePomodoro.timeLeftSeconds % 60
+        : null
+
+    system += `\n\n═══ CURRENT / RECENT POMODORO FOCUS SESSION ═══
+• Current Status: ${(activePomodoro.status || "active").toUpperCase()}
+• Focus Block Duration: ${activePomodoro.durationMinutes ?? 25} minutes (${activePomodoro.preset ?? "custom"})
+• Focus Task & Description: "${activePomodoro.description?.trim() || "Deep study block"}"
+${minsLeft !== null ? `• Time Remaining in Session: ${minsLeft}m ${secsLeft}s` : ""}
+• Focus Blocks Completed Today: ${activePomodoro.completedTodayCount ?? 0}
+${
+  activePomodoro.recentSessions && activePomodoro.recentSessions.length > 0
+    ? `• Other Focus Blocks Completed Today:\n${activePomodoro.recentSessions
+        .map((s) => `  - "${s.description}" (${s.durationMinutes}m)`)
+        .join("\n")}`
+    : ""
+}
+
+POMODORO COACHING DIRECTIVE:
+The student has explicitly entered this description for their focus session so you have a crystal-clear understanding of what they are doing at this exact time.
+- Contextualize your advice, explanations, question suggestions, and problem-solving tactics directly to this task.
+- Help them stay sharp, prevent passive illusions of competence, and diagnose specific hurdles in this focus topic.
+- If they ask general questions, ground your answers in the topic of this active session whenever applicable.`
+  }
+
+  // Inject cross-chat memory so new chats can seamlessly reference previous chat conversations
+  if (chatMemory && chatMemory.length > 0) {
+    const memoryBlocks = chatMemory
+      .filter((s) => s.title || (s.keyExchanges && s.keyExchanges.length > 0) || s.summary)
+      .slice(0, 5)
+      .map((session, idx) => {
+        const title = session.title || `Past Chat ${idx + 1}`
+        const dateStr = session.date ? ` (${session.date})` : ""
+        const summary = session.summary ? `Summary: ${session.summary}\n` : ""
+        const exchanges =
+          session.keyExchanges && session.keyExchanges.length > 0
+            ? session.keyExchanges
+                .slice(-4)
+                .map(
+                  (ex) =>
+                    `  - ${ex.role === "user" ? "Student asked/said" : "Mentor advised"}: "${ex.content.slice(0, 200)}${ex.content.length > 200 ? "…" : ""}"`,
+                )
+                .join("\n")
+            : ""
+        return `[Chat: "${title}"${dateStr}]\n${summary}${exchanges}`
+      })
+      .join("\n\n")
+
+    if (memoryBlocks.trim()) {
+      system += `\n\n═══ PREVIOUS CONVERSATIONS MEMORY (CROSS-CHAT CONTINUITY) ═══
+You have continuous long-term memory across all past coaching sessions with this student.
+Here is the memory digest of their recent previous chat sessions:
+
+${memoryBlocks}
+
+CROSS-SESSION MEMORY RULES:
+1. You REMEMBER these previous conversations. When the student starts a new chat or asks follow-ups (e.g. "as we discussed before", "my weak areas from yesterday", "continue with the topic we discussed"), you have direct access to this context.
+2. Maintain unbroken continuity of their preparation journey across multiple chat sessions.
+3. Hold them accountable to commitments or advice given in earlier conversations without needing them to repeat their background.
+4. Seamlessly incorporate this background knowledge into your responses.`
+    }
   }
 
   return [{ role: "system", content: system }, ...userMessages]
