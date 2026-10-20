@@ -133,19 +133,149 @@ export function useUserData() {
   useEffect(() => {
     const reloadProgress = async () => {
       if (!userId) return
+
+      // 1. Reload single point table (user_progress)
       const { data } = await supabase
         .from("user_progress")
         .select("*")
         .eq("user_id", userId)
         .maybeSingle()
-      if (!data) return
-      const nextProgress = progressFromRow(data)
-      progressRef.current = nextProgress
-      setProgress(nextProgress)
+      if (data) {
+        const nextProgress = progressFromRow(data)
+        progressRef.current = nextProgress
+        setProgress(nextProgress)
+      }
+
+      // 2. Reload daily reports so charts and stats sync immediately
+      const { data: reportRows } = await supabase
+        .from("daily_reports")
+        .select("*")
+        .eq("user_id", userId)
+        .order("report_date", { ascending: false })
+        .limit(30)
+
+      if (reportRows) {
+        setReports(
+          reportRows.map((row: any) => ({
+            date: new Date(`${row.report_date}T00:00:00`),
+            lecturesCompleted: row.lectures_completed,
+            topicsRevised: row.topics_revised,
+            practiceHours: Number(row.practice_hours),
+            morningSession: row.morning_session,
+            exerciseDone: row.exercise_done,
+            distractionsLevel: row.distractions_level,
+            mentalState: row.mental_state ?? "",
+            expGained: row.exp_gained,
+          })),
+        )
+      }
     }
     window.addEventListener("user-progress-changed", reloadProgress)
     return () => window.removeEventListener("user-progress-changed", reloadProgress)
   }, [supabase, userId])
+
+  // Unified EXP awarding function: increments current_exp in user_progress
+  // and updates today's daily_reports (practice_hours & exp_gained)
+  const awardExp = useCallback(
+    async (
+      amount: number,
+      options?: {
+        practiceMinutes?: number
+        source?: string
+      },
+    ) => {
+      if (!userId || amount <= 0) return
+
+      // 1. Fetch current EXP & update user_progress (the single point table)
+      const { data: progressRow } = await supabase
+        .from("user_progress")
+        .select("current_exp")
+        .eq("user_id", userId)
+        .maybeSingle()
+
+      const current = progressRow?.current_exp ?? progressRef.current.currentExp ?? 0
+      const nextExp = current + amount
+
+      await supabase
+        .from("user_progress")
+        .update({
+          current_exp: nextExp,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId)
+
+      progressRef.current = { ...progressRef.current, currentExp: nextExp }
+      setProgress((prev) => ({ ...prev, currentExp: nextExp }))
+
+      // 2. Sync to today's daily_reports
+      const todayStr = format(new Date(), "yyyy-MM-dd")
+      const addedHours = options?.practiceMinutes
+        ? Number((options.practiceMinutes / 60).toFixed(1))
+        : 0
+
+      const { data: todayRow } = await supabase
+        .from("daily_reports")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("report_date", todayStr)
+        .maybeSingle()
+
+      if (todayRow) {
+        const nextPractice = Number(
+          (Number(todayRow.practice_hours || 0) + addedHours).toFixed(1),
+        )
+        const nextGained = (todayRow.exp_gained || 0) + amount
+
+        await supabase
+          .from("daily_reports")
+          .update({
+            practice_hours: nextPractice,
+            exp_gained: nextGained,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", todayRow.id)
+
+        setReports((prev) =>
+          prev.map((r) =>
+            format(r.date, "yyyy-MM-dd") === todayStr
+              ? { ...r, practiceHours: nextPractice, expGained: nextGained }
+              : r,
+          ),
+        )
+      } else {
+        const newDaily = {
+          user_id: userId,
+          report_date: todayStr,
+          practice_hours: addedHours,
+          exp_gained: amount,
+          lectures_completed: 0,
+          topics_revised: 0,
+          morning_session: false,
+          exercise_done: false,
+          distractions_level: "None",
+        }
+        await supabase.from("daily_reports").insert(newDaily)
+
+        setReports((prev) => [
+          {
+            date: new Date(`${todayStr}T00:00:00`),
+            lecturesCompleted: 0,
+            topicsRevised: 0,
+            practiceHours: addedHours,
+            morningSession: false,
+            exerciseDone: false,
+            distractionsLevel: "None",
+            mentalState: "",
+            expGained: amount,
+          },
+          ...prev,
+        ])
+      }
+
+      window.dispatchEvent(new CustomEvent("user-progress-changed"))
+    },
+    [supabase, userId],
+  )
 
   // Persist progress. Accepts a partial patch or an updater function
   // (like setState) so rapid successive updates don't clobber each other.
@@ -243,6 +373,7 @@ export function useUserData() {
     loading,
     saveProgress,
     saveReport,
+    awardExp,
     reload: load,
   }
 }

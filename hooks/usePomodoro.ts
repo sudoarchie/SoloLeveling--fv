@@ -31,6 +31,34 @@ interface StoredPomodoroState {
 const STORAGE_KEY_STATE = "gate_tracker_pomodoro_state_v2"
 const STORAGE_KEY_HISTORY = "gate_tracker_pomodoro_history_v2"
 
+export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
+  {
+    id: "pomodoro-seed-1",
+    preset: "180",
+    durationMinutes: 180,
+    description:
+      "cn lecture Videos 5–7 | GATE 2016–2018 Layer Functions & Headers OSI & TCP/IP Reference Models, Layering Architecture & Encapsulation",
+    completedAt: "2026-10-20T16:09:00.000Z",
+    expAwarded: 250,
+  },
+  {
+    id: "pomodoro-seed-2",
+    preset: "25",
+    durationMinutes: 25,
+    description: "Revision dsa notes",
+    completedAt: "2026-10-20T12:21:00.000Z",
+    expAwarded: 30,
+  },
+  {
+    id: "pomodoro-seed-3",
+    preset: "90",
+    durationMinutes: 22,
+    description: "Revision dsa notes",
+    completedAt: "2026-10-20T09:38:00.000Z",
+    expAwarded: 30,
+  },
+]
+
 // Synthesize pleasant completion chime via Web Audio API
 function playCompletionChime() {
   if (typeof window === "undefined") return
@@ -93,14 +121,16 @@ function calculateExp(durationMinutes: number): number {
 }
 
 export function usePomodoro() {
-  const [preset, setPresetState] = useState<PomodoroPreset>("25")
+  const [preset, setPresetState] = useState<PomodoroPreset>("180")
   const [customMinutes, setCustomMinutesState] = useState<number>(45)
-  const [description, setDescriptionState] = useState<string>("")
+  const [description, setDescriptionState] = useState<string>(
+    "cn lecture Videos 5–7 | GATE 2016–2018 Layer Functions & Headers OSI & TCP/IP Reference Models, Layering Architecture & Encapsulation",
+  )
   const [mode, setModeState] = useState<PomodoroMode>("work")
   const [status, setStatusState] = useState<PomodoroStatus>("idle")
-  const [timeLeft, setTimeLeft] = useState<number>(25 * 60)
+  const [timeLeft, setTimeLeft] = useState<number>(180 * 60)
   const [targetEndTime, setTargetEndTime] = useState<number | null>(null)
-  const [history, setHistory] = useState<PomodoroSessionRecord[]>([])
+  const [history, setHistory] = useState<PomodoroSessionRecord[]>(DEFAULT_SEEDED_SESSIONS)
 
   const stateRef = useRef({
     preset,
@@ -130,19 +160,37 @@ export function usePomodoro() {
     try {
       const rawHistory = localStorage.getItem(STORAGE_KEY_HISTORY)
       if (rawHistory) {
-        setHistory(JSON.parse(rawHistory))
+        const parsed: PomodoroSessionRecord[] = JSON.parse(rawHistory)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const existingIds = new Set(parsed.map((p) => p.id || p.description + p.completedAt))
+          const missingSeeds = DEFAULT_SEEDED_SESSIONS.filter(
+            (s) => !existingIds.has(s.id) && !existingIds.has(s.description + s.completedAt),
+          )
+          const merged = [...parsed, ...missingSeeds].slice(0, 50)
+          setHistory(merged)
+          localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(merged))
+        } else {
+          setHistory(DEFAULT_SEEDED_SESSIONS)
+          localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(DEFAULT_SEEDED_SESSIONS))
+        }
+      } else {
+        setHistory(DEFAULT_SEEDED_SESSIONS)
+        localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(DEFAULT_SEEDED_SESSIONS))
       }
     } catch {
-      // Ignore parse errors
+      setHistory(DEFAULT_SEEDED_SESSIONS)
     }
 
     try {
       const rawState = localStorage.getItem(STORAGE_KEY_STATE)
       if (rawState) {
         const parsed: StoredPomodoroState = JSON.parse(rawState)
-        setPresetState(parsed.preset || "25")
+        setPresetState(parsed.preset || "180")
         setCustomMinutesState(parsed.customMinutes || 45)
-        setDescriptionState(parsed.description || "")
+        setDescriptionState(
+          parsed.description ||
+            "cn lecture Videos 5–7 | GATE 2016–2018 Layer Functions & Headers OSI & TCP/IP Reference Models, Layering Architecture & Encapsulation",
+        )
         setModeState(parsed.mode || "work")
 
         if (parsed.status === "running" && parsed.targetEndTime) {
@@ -277,7 +325,7 @@ export function usePomodoro() {
       setHistory(updatedHistory)
       localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(updatedHistory))
 
-      // Award EXP in user_progress
+      // Award EXP in user_progress (the single point table) & daily_reports
       try {
         const supabase = createClient()
         const {
@@ -285,22 +333,57 @@ export function usePomodoro() {
         } = await supabase.auth.getUser()
 
         if (user) {
-          // 1. Fetch current EXP & update
+          // 1. Fetch current EXP & update user_progress
           const { data: progressRow } = await supabase
             .from("user_progress")
             .select("current_exp")
             .eq("user_id", user.id)
-            .single()
+            .maybeSingle()
 
           const nextExp = (progressRow?.current_exp ?? 0) + exp
           await supabase
             .from("user_progress")
-            .update({ current_exp: nextExp })
+            .update({ current_exp: nextExp, updated_at: new Date().toISOString() })
             .eq("user_id", user.id)
 
+          // 2. Also update today's daily_reports (practice_hours & exp_gained)
+          const todayStr = new Date().toISOString().split("T")[0]
+          const addedHours = Number((mins / 60).toFixed(1))
+
+          const { data: todayReport } = await supabase
+            .from("daily_reports")
+            .select("*")
+            .eq("user_id", user.id)
+            .eq("report_date", todayStr)
+            .maybeSingle()
+
+          if (todayReport) {
+            await supabase
+              .from("daily_reports")
+              .update({
+                practice_hours: Number((Number(todayReport.practice_hours || 0) + addedHours).toFixed(1)),
+                exp_gained: (todayReport.exp_gained || 0) + exp,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", todayReport.id)
+          } else {
+            await supabase.from("daily_reports").insert({
+              user_id: user.id,
+              report_date: todayStr,
+              practice_hours: addedHours,
+              exp_gained: exp,
+              lectures_completed: 0,
+              topics_revised: 0,
+              morning_session: false,
+              exercise_done: false,
+              distractions_level: "None",
+            })
+          }
+
+          // 3. Dispatch user-progress-changed event to sync all UI components & hooks
           window.dispatchEvent(new CustomEvent("user-progress-changed"))
 
-          // 2. Try inserting into pomodoro_sessions (graceful if table missing)
+          // 4. Try inserting into pomodoro_sessions (graceful if table missing)
           try {
             await supabase.from("pomodoro_sessions").insert({
               user_id: user.id,
@@ -316,8 +399,8 @@ export function usePomodoro() {
             // Table might not exist yet before migration
           }
         }
-      } catch {
-        // Continue even if Supabase offline
+      } catch (err) {
+        console.error("Failed to sync points to user_progress:", err)
       }
 
       toast.success(`Focus Block Completed! +${exp} EXP Earned`, {
@@ -457,10 +540,10 @@ export function usePomodoro() {
     setTargetEndTime(null)
     setTimeLeft(0)
 
-    if (current.mode === "work" && elapsedMinutes >= 3) {
+    if (current.mode === "work" && elapsedSeconds >= 30) {
       void logCompletedSession(current.preset, elapsedMinutes, current.description)
     } else {
-      toast.info("Session ended early")
+      toast.info("Session ended early (under 30s)")
     }
 
     persistState({

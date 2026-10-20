@@ -279,12 +279,14 @@ export default function GATETracker() {
 
   const logInitialized = useRef(false)
   useEffect(() => {
-    if (userDataLoading || logInitialized.current) return
-    logInitialized.current = true
+    if (userDataLoading) return
     const today = dailyReports.find((report) =>
       isSameDay(report.date, new Date()),
     )
-    if (today) {
+    if (!today) return
+
+    if (!logInitialized.current) {
+      logInitialized.current = true
       setFormData({
         lecturesCompleted: today.lecturesCompleted,
         topicsRevised: today.topicsRevised,
@@ -293,6 +295,14 @@ export default function GATETracker() {
         exerciseDone: today.exerciseDone,
         distractionsLevel: today.distractionsLevel,
         mentalState: today.mentalState,
+      })
+    } else {
+      // Keep practiceHours in sync with background additions (e.g. from Pomodoro focus timer)
+      setFormData((prev) => {
+        if (today.practiceHours > prev.practiceHours) {
+          return { ...prev, practiceHours: today.practiceHours }
+        }
+        return prev
       })
     }
   }, [dailyReports, userDataLoading])

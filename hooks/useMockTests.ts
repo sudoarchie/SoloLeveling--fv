@@ -337,6 +337,62 @@ export function useMockTests() {
 
       if (error || !data) return 0
 
+      // Credit to unified points table (user_progress & daily_reports)
+      if (expGained > 0) {
+        try {
+          const { data: pRow } = await supabase
+            .from("user_progress")
+            .select("current_exp")
+            .eq("user_id", userId)
+            .maybeSingle()
+
+          const nextExp = (pRow?.current_exp ?? 0) + expGained
+          await supabase
+            .from("user_progress")
+            .update({ current_exp: nextExp, updated_at: new Date().toISOString() })
+            .eq("user_id", userId)
+
+          const todayStr = new Date().toISOString().split("T")[0]
+          const addedHours = details?.timeSpentMinutes
+            ? Number((details.timeSpentMinutes / 60).toFixed(1))
+            : 0
+
+          const { data: todayReport } = await supabase
+            .from("daily_reports")
+            .select("*")
+            .eq("user_id", userId)
+            .eq("report_date", todayStr)
+            .maybeSingle()
+
+          if (todayReport) {
+            await supabase
+              .from("daily_reports")
+              .update({
+                practice_hours: Number((Number(todayReport.practice_hours || 0) + addedHours).toFixed(1)),
+                exp_gained: (todayReport.exp_gained || 0) + expGained,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", todayReport.id)
+          } else {
+            await supabase.from("daily_reports").insert({
+              user_id: userId,
+              report_date: todayStr,
+              practice_hours: addedHours,
+              exp_gained: expGained,
+              lectures_completed: 0,
+              topics_revised: 0,
+              morning_session: false,
+              exercise_done: false,
+              distractions_level: "None",
+            })
+          }
+
+          window.dispatchEvent(new CustomEvent("user-progress-changed"))
+        } catch (syncErr) {
+          console.error("Failed to sync mock test EXP to user_progress:", syncErr)
+        }
+      }
+
       setAttempts((prev) =>
         [
           {

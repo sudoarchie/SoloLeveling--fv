@@ -29,6 +29,7 @@ import {
 } from "lucide-react"
 import { usePomodoro, type PomodoroPreset } from "@/hooks/usePomodoro"
 import { useSpacedRepetition } from "@/hooks/useSpacedRepetition"
+import { useUserData } from "@/hooks/useUserData"
 
 interface PomodoroTimerProps {
   onOpenAIMentor?: (prefill?: string) => void
@@ -108,6 +109,8 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
   const [customInput, setCustomInput] = useState<string>(String(customMinutes || 45))
   const [customOpen, setCustomOpen] = useState(false)
   const spacedRepetition = useSpacedRepetition()
+  const { progress } = useUserData()
+  const currentExp = progress.currentExp
 
   // Suggestions from due topics or active prep topics
   const dueTopicNames = spacedRepetition.dueTopics.map((t) => t.name).slice(0, 4)
@@ -155,9 +158,13 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
                   <Badge variant="outline" className="text-[10px] font-mono py-0 h-4 px-1.5 border-primary/30 text-primary">
                     {mode === "work" ? "Deep Study" : "Rest & Recharge"}
                   </Badge>
+                  <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[11px] text-primary font-mono tabular-nums">
+                    <Flame className="h-3 w-3 text-amber-500" />
+                    {currentExp.toLocaleString()} Total EXP
+                  </span>
                 </div>
                 <CardDescription className="text-xs">
-                  Grounded in ultradian rhythms and deliberate active practice.
+                  Grounded in ultradian rhythms. Focus blocks credit directly to your main profile and daily report.
                 </CardDescription>
               </div>
             </div>
@@ -523,11 +530,14 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
             <div className="rounded-xl border bg-card/60 p-3 sm:p-4 text-center">
               <p className="text-[11px] text-muted-foreground font-medium flex items-center justify-center gap-1">
                 <Flame className="h-3.5 w-3.5 text-amber-500" />
-                EXP Earned
+                Focus EXP Today
               </p>
               <p className="mt-1 text-xl sm:text-2xl font-bold font-mono text-primary tabular-nums">
                 +{todayExpEarned}
                 <span className="ml-1 text-xs font-normal text-muted-foreground">EXP</span>
+              </p>
+              <p className="text-[10px] text-emerald-500 font-medium mt-0.5">
+                ✓ Synced to Main Rank
               </p>
             </div>
           </div>

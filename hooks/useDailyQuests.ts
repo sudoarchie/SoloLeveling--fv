@@ -201,6 +201,57 @@ export function useDailyQuests() {
           quest_title: justCompleted.title,
           exp_reward: justCompleted.expReward,
         })
+
+        // Credit to unified single point table (user_progress & daily_reports)
+        if (justCompleted.expReward > 0) {
+          try {
+            const { data: pRow } = await supabase
+              .from("user_progress")
+              .select("current_exp")
+              .eq("user_id", userId)
+              .maybeSingle()
+
+            const nextExp = (pRow?.current_exp ?? 0) + justCompleted.expReward
+            await supabase
+              .from("user_progress")
+              .update({ current_exp: nextExp, updated_at: new Date().toISOString() })
+              .eq("user_id", userId)
+
+            const today = todayStr()
+            const { data: todayReport } = await supabase
+              .from("daily_reports")
+              .select("*")
+              .eq("user_id", userId)
+              .eq("report_date", today)
+              .maybeSingle()
+
+            if (todayReport) {
+              await supabase
+                .from("daily_reports")
+                .update({
+                  exp_gained: (todayReport.exp_gained || 0) + justCompleted.expReward,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", todayReport.id)
+            } else {
+              await supabase.from("daily_reports").insert({
+                user_id: userId,
+                report_date: today,
+                practice_hours: 0,
+                exp_gained: justCompleted.expReward,
+                lectures_completed: 0,
+                topics_revised: 0,
+                morning_session: false,
+                exercise_done: false,
+                distractions_level: "None",
+              })
+            }
+
+            window.dispatchEvent(new CustomEvent("user-progress-changed"))
+          } catch (syncErr) {
+            console.error("Failed to sync quest EXP to user_progress:", syncErr)
+          }
+        }
       }
 
       const nowAllDone = next.every((q) => q.completed)
@@ -285,6 +336,43 @@ export function useDailyQuests() {
           daysCompleted,
           streakFreezes: current.streak_freezes,
         })
+
+        if (bonusExp > 0) {
+          try {
+            const { data: pRow } = await supabase
+              .from("user_progress")
+              .select("current_exp")
+              .eq("user_id", userId)
+              .maybeSingle()
+
+            const nextExp = (pRow?.current_exp ?? 0) + bonusExp
+            await supabase
+              .from("user_progress")
+              .update({ current_exp: nextExp, updated_at: new Date().toISOString() })
+              .eq("user_id", userId)
+
+            const { data: todayReport } = await supabase
+              .from("daily_reports")
+              .select("*")
+              .eq("user_id", userId)
+              .eq("report_date", today)
+              .maybeSingle()
+
+            if (todayReport) {
+              await supabase
+                .from("daily_reports")
+                .update({
+                  exp_gained: (todayReport.exp_gained || 0) + bonusExp,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", todayReport.id)
+            }
+
+            window.dispatchEvent(new CustomEvent("user-progress-changed"))
+          } catch {
+            // Silently continue
+          }
+        }
       }
     },
     [supabase, userId],
