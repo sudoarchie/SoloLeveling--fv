@@ -82,6 +82,7 @@ function Counter({
           min="0"
           step={step}
           value={value}
+          onFocus={(e) => e.target.select()}
           onChange={(e) => {
             const next = Number(e.target.value)
             if (Number.isFinite(next))

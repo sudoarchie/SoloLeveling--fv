@@ -87,7 +87,7 @@ export default function AdvancedAnalytics({
 
     const totalLectures = thisWeekReports.reduce((sum, report) => sum + report.lecturesCompleted, 0)
     const totalTopics = thisWeekReports.reduce((sum, report) => sum + report.oldTopicsRevised, 0)
-    const totalHours = thisWeekReports.reduce((sum, report) => sum + report.questionPracticeHours, 0)
+    const totalHours = Number(thisWeekReports.reduce((sum, report) => sum + report.questionPracticeHours, 0).toFixed(1))
     const totalExp = thisWeekReports.reduce((sum, report) => sum + report.expGained, 0)
 
     const targetLectures = dailyTargets.lecturesCompleted * 7
@@ -514,7 +514,7 @@ export default function AdvancedAnalytics({
                   {(() => {
                     const totalLectures = dailyReports.reduce((sum, r) => sum + r.lecturesCompleted, 0)
                     const totalTopics = dailyReports.reduce((sum, r) => sum + r.oldTopicsRevised, 0)
-                    const totalHours = dailyReports.reduce((sum, r) => sum + r.questionPracticeHours, 0)
+                    const totalHours = Number(dailyReports.reduce((sum, r) => sum + r.questionPracticeHours, 0).toFixed(1))
                     const total = totalLectures + totalTopics + totalHours
 
                     if (total === 0) return <p className="text-gray-500">No study data available</p>

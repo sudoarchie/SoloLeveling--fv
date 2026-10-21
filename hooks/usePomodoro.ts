@@ -277,7 +277,7 @@ export function usePomodoro() {
         if (!Array.isArray(parsed)) return
 
         const todaySes = parsed.filter(
-          (h) => h.completedAt && isSameDay(new Date(h.completedAt), new Date()),
+          (h) => !h.id?.startsWith("pomodoro-seed-") && h.completedAt && isSameDay(new Date(h.completedAt), new Date()),
         )
         const todayExp = todaySes.reduce((acc, s) => acc + (s.expAwarded || 0), 0)
         const todayMins = todaySes.reduce((acc, s) => acc + (s.durationMinutes || 0), 0)

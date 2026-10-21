@@ -287,23 +287,40 @@ export default function GATETracker() {
 
     if (!logInitialized.current) {
       logInitialized.current = true
-      setFormData({
-        lecturesCompleted: today.lecturesCompleted,
-        topicsRevised: today.topicsRevised,
-        practiceHours: today.practiceHours,
-        morningSession: today.morningSession,
-        exerciseDone: today.exerciseDone,
-        distractionsLevel: today.distractionsLevel,
-        mentalState: today.mentalState,
-      })
-    } else {
-      // Keep practiceHours in sync with background additions (e.g. from Pomodoro focus timer)
-      setFormData((prev) => {
-        if (today.practiceHours > prev.practiceHours) {
-          return { ...prev, practiceHours: today.practiceHours }
-        }
-        return prev
-      })
+
+      const todayStr = format(new Date(), "yyyy-MM-dd")
+      const savedManualKey = `gate_tracker_manual_log_${todayStr}`
+      let savedManual: any = null
+      if (typeof window !== "undefined") {
+        try {
+          const raw = localStorage.getItem(savedManualKey)
+          if (raw) savedManual = JSON.parse(raw)
+        } catch {}
+      }
+
+      if (savedManual) {
+        setFormData({
+          lecturesCompleted: savedManual.lecturesCompleted ?? today.lecturesCompleted,
+          topicsRevised: savedManual.topicsRevised ?? today.topicsRevised,
+          practiceHours: savedManual.practiceHours ?? 0,
+          morningSession: savedManual.morningSession ?? today.morningSession,
+          exerciseDone: savedManual.exerciseDone ?? today.exerciseDone,
+          distractionsLevel: savedManual.distractionsLevel ?? today.distractionsLevel,
+          mentalState: savedManual.mentalState ?? today.mentalState,
+        })
+      } else {
+        // When no manual log has been submitted today in this browser, initialize form cleanly.
+        // Never pre-fill practice hours from background (pomodoro / mock tests / seeds).
+        setFormData({
+          lecturesCompleted: today.lecturesCompleted,
+          topicsRevised: today.topicsRevised,
+          practiceHours: 0,
+          morningSession: today.morningSession,
+          exerciseDone: today.exerciseDone,
+          distractionsLevel: today.distractionsLevel,
+          mentalState: today.mentalState,
+        })
+      }
     }
   }, [dailyReports, userDataLoading])
 
@@ -352,13 +369,18 @@ export default function GATETracker() {
         morningSession: boolean
         exerciseDone: boolean
         distractionsLevel: string
+        practiceHours?: number
       },
-      extraPracticeHours = 0,
+      manualPracticeHours?: number,
     ) => {
       let exp = 0
       exp += (data.lecturesCompleted || 0) * 50
       exp += (data.topicsRevised || 0) * 30
-      exp += Math.max(0, extraPracticeHours) * 100
+      const hours =
+        manualPracticeHours !== undefined
+          ? manualPracticeHours
+          : (data.practiceHours || 0)
+      exp += Math.max(0, hours) * 100
       exp += data.morningSession ? 50 : 0
       exp += data.exerciseDone ? 30 : 0
 
@@ -386,17 +408,24 @@ export default function GATETracker() {
         isSameDay(report.date, new Date()),
       )
 
-      // 1. Calculate how much EXP was contributed by the previous manual form
-      const existingPracticeHours = todayReport?.practiceHours ?? 0
-      const prevManualExp = todayReport
-        ? calculateFormExp(todayReport, 0)
-        : 0
+      const todayStr = format(new Date(), "yyyy-MM-dd")
+      const savedManualKey = `gate_tracker_manual_log_${todayStr}`
+      let savedManual: any = null
+      if (typeof window !== "undefined") {
+        try {
+          const raw = localStorage.getItem(savedManualKey)
+          if (raw) savedManual = JSON.parse(raw)
+        } catch {}
+      }
 
-      // 2. Extra manual practice hours beyond existing tracked focus hours
-      const extraPractice = Math.max(0, formData.practiceHours - existingPracticeHours)
-      const newManualExp = calculateFormExp(formData, extraPractice)
+      // Previous manual log contributions (if any)
+      const prevManualPracticeHours = Number(savedManual?.practiceHours ?? 0)
+      const prevManualExp = Number(savedManual?.manualExp ?? 0)
 
-      // 3. Other sources EXP (Focus Pomodoro sessions, Quests, Mock tests) already earned today
+      const newManualPracticeHours = Number(formData.practiceHours || 0)
+      const newManualExp = calculateFormExp(formData, newManualPracticeHours)
+
+      // Other sources EXP (Focus Pomodoro sessions, Quests, Mock tests) already earned today
       const otherSourcesExp = todayReport
         ? Math.max(0, todayReport.expGained - prevManualExp)
         : 0
@@ -421,14 +450,18 @@ export default function GATETracker() {
         })
       }
 
-      // 4. Final total EXP for today: other sources + new manual form EXP + topic review EXP
+      // Delta of practice hours from this manual form
+      const deltaPractice = newManualPracticeHours - prevManualPracticeHours
+      const existingPracticeHours = Number(todayReport?.practiceHours ?? 0)
+      const finalPracticeHours = Number(
+        Math.max(0, existingPracticeHours + deltaPractice).toFixed(1),
+      )
+
+      // Final total EXP for today: other sources + new manual form EXP + topic review EXP
       const finalExpGained = otherSourcesExp + newManualExp + topicFeedback.exp
 
-      // 5. Delta added to user_progress.currentExp
+      // Delta added to user_progress.currentExp
       const expDelta = newManualExp - prevManualExp + topicFeedback.exp
-
-      // 6. Practice hours: preserve at least existing focus hours
-      const finalPracticeHours = Math.max(formData.practiceHours, existingPracticeHours)
 
       const newReport: DailyReport = {
         date: new Date(),
@@ -439,6 +472,20 @@ export default function GATETracker() {
 
       const oldRank = currentRank
       await saveReport(newReport)
+
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(
+            savedManualKey,
+            JSON.stringify({
+              ...formData,
+              manualExp: newManualExp,
+              submittedAt: new Date().toISOString(),
+            }),
+          )
+        } catch {}
+      }
+
       if (expDelta !== 0) {
         await setCurrentExp((prev) => Math.max(0, prev + expDelta))
       }
@@ -501,11 +548,8 @@ export default function GATETracker() {
 
   // Calculate live preview of EXP that this log entry will add
   const formExpPreview = useMemo(() => {
-    const todayReport = dailyReports.find((r) => isSameDay(r.date, new Date()))
-    const existingPractice = todayReport?.practiceHours ?? 0
-    const extraPractice = Math.max(0, formData.practiceHours - existingPractice)
-    return calculateFormExp(formData, extraPractice)
-  }, [calculateFormExp, dailyReports, formData])
+    return calculateFormExp(formData)
+  }, [calculateFormExp, formData])
 
   // Apply claimed loot: bonus EXP + reward effects (titles, cosmetics, streak freezes)
   const handleLootClaimed = (loot: LootDrop) => {
@@ -586,7 +630,7 @@ export default function GATETracker() {
         date: format(date, "MMM d"),
         lectures: report?.lecturesCompleted ?? 0,
         topics: report?.topicsRevised ?? 0,
-        practice: report?.practiceHours ?? 0,
+        practice: Number((report?.practiceHours ?? 0).toFixed(1)),
         exp: report?.expGained ?? 0,
       }
     })
@@ -605,15 +649,18 @@ export default function GATETracker() {
         0,
       ),
       totalTopics: thisWeekReports.reduce((sum, r) => sum + r.topicsRevised, 0),
-      totalPractice: thisWeekReports.reduce(
-        (sum, r) => sum + r.practiceHours,
-        0,
+      totalPractice: Number(
+        thisWeekReports
+          .reduce((sum, r) => sum + (r.practiceHours || 0), 0)
+          .toFixed(1),
       ),
       activeDays: thisWeekReports.length,
       avgExp:
         thisWeekReports.length > 0
-          ? thisWeekReports.reduce((sum, r) => sum + r.expGained, 0) /
-            thisWeekReports.length
+          ? Math.round(
+              thisWeekReports.reduce((sum, r) => sum + r.expGained, 0) /
+                thisWeekReports.length,
+            )
           : 0,
     }
   }
@@ -648,8 +695,21 @@ export default function GATETracker() {
   }
 
   const dueCount = spacedRepetition.dueTopics.length
-  const hasReportToday = dailyReports.some((report) =>
+  const todayReport = dailyReports.find((report) =>
     isSameDay(report.date, new Date()),
+  )
+  const todayDateStr = format(new Date(), "yyyy-MM-dd")
+  const hasSavedManualLog =
+    typeof window !== "undefined" &&
+    Boolean(localStorage.getItem(`gate_tracker_manual_log_${todayDateStr}`))
+  const hasReportToday = Boolean(
+    hasSavedManualLog ||
+      (todayReport &&
+        (todayReport.lecturesCompleted > 0 ||
+          todayReport.topicsRevised > 0 ||
+          todayReport.morningSession ||
+          todayReport.exerciseDone ||
+          Boolean(todayReport.mentalState))),
   )
   const viewCopy: Record<string, { title: string; description: string }> = {
     today: {
