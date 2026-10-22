@@ -54,6 +54,8 @@ import {
   GraduationCap,
   FileQuestion,
   Timer,
+  Lock,
+  Play,
 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -74,7 +76,10 @@ import {
   YAxis,
   CartesianGrid,
 } from "recharts"
-import { useSoundEffects } from "@/hooks/useSoundEffects"
+import {
+  useSoundEffects,
+  type UpgradeBgmChoice,
+} from "@/hooks/useSoundEffects"
 import { useDailyQuests } from "@/hooks/useDailyQuests"
 import {
   useSpacedRepetition,
@@ -96,91 +101,22 @@ import { DailyInsight } from "@/components/DailyInsight"
 import { PomodoroTimer } from "@/components/PomodoroTimer"
 import { QuickFocusWidget } from "@/components/QuickFocusWidget"
 import { usePomodoro } from "@/hooks/usePomodoro"
+import { Badge } from "@/components/ui/badge"
+import {
+  RANKS,
+  ALL_THEMES,
+  getRank,
+  getNextRank,
+  getRankProgressDetails,
+  calculateWeeklyStudyStats,
+  isThemeUnlocked,
+  type RankInfo,
+  type RankTheme,
+} from "@/lib/ranks"
+import RankUpgradeModal from "@/components/RankUpgradeModal"
 
-interface RankInfo {
-  name: string
-  title: string
-  color: string
-  minExp: number
-  maxExp: number
-  description: string
-}
-
-const ranks: RankInfo[] = [
-  {
-    name: "E",
-    title: "Novice",
-    color: "hsl(var(--muted-foreground))",
-    minExp: 0,
-    maxExp: 500,
-    description: "Just getting started",
-  },
-  {
-    name: "D",
-    title: "Learner",
-    color: "hsl(var(--primary))",
-    minExp: 500,
-    maxExp: 1200,
-    description: "Building foundations",
-  },
-  {
-    name: "C",
-    title: "Student",
-    color: "hsl(var(--primary))",
-    minExp: 1200,
-    maxExp: 2000,
-    description: "Making progress",
-  },
-  {
-    name: "B",
-    title: "Scholar",
-    color: "hsl(var(--primary))",
-    minExp: 2000,
-    maxExp: 3000,
-    description: "Solid understanding",
-  },
-  {
-    name: "A",
-    title: "Expert",
-    color: "hsl(var(--primary))",
-    minExp: 3000,
-    maxExp: 4500,
-    description: "Advanced knowledge",
-  },
-  {
-    name: "S",
-    title: "Master",
-    color: "hsl(var(--primary))",
-    minExp: 4500,
-    maxExp: 6500,
-    description: "Elite performance",
-  },
-  {
-    name: "SS",
-    title: "Elite",
-    color: "hsl(var(--primary))",
-    minExp: 6500,
-    maxExp: 9000,
-    description: "Top 5% performer",
-  },
-  {
-    name: "SSS",
-    title: "Legend",
-    color: "hsl(var(--primary))",
-    minExp: 9000,
-    maxExp: 15000,
-    description: "Legendary status",
-  },
-]
-
-const themes = [
-  { name: "Blue", value: "blue", color: "hsl(221, 83%, 53%)" },
-  { name: "Green", value: "green", color: "hsl(142, 76%, 36%)" },
-  { name: "Purple", value: "purple", color: "hsl(262, 83%, 58%)" },
-  { name: "Orange", value: "orange", color: "hsl(25, 95%, 53%)" },
-  { name: "Red", value: "red", color: "hsl(0, 84%, 60%)" },
-  { name: "Pink", value: "pink", color: "hsl(336, 75%, 40%)" },
-]
+const ranks: RankInfo[] = RANKS
+const themes = ALL_THEMES
 
 const chartConfig = {
   lectures: { label: "Lectures", color: "hsl(var(--chart-1))" },
@@ -324,31 +260,110 @@ export default function GATETracker() {
     }
   }, [dailyReports, userDataLoading])
 
-  // Get current rank
-  const currentRank =
-    ranks.find(
-      (rank) => currentExp >= rank.minExp && currentExp < rank.maxExp,
-    ) || ranks[ranks.length - 1]
-  const nextRank =
-    ranks[ranks.findIndex((r) => r.name === currentRank.name) + 1]
+  // Calculate weekly study stats (rolling 7-day window, daily average, effective weekly hours)
+  const weeklyStudyStats = useMemo(() => {
+    return calculateWeeklyStudyStats(dailyReports)
+  }, [dailyReports])
+
+  // Get current rank taking BOTH cumulative EXP AND weekly study time into account
+  const currentRank = useMemo(() => {
+    return getRank(currentExp, weeklyStudyStats.effectiveWeeklyHours)
+  }, [currentExp, weeklyStudyStats.effectiveWeeklyHours])
+
+  const nextRank = useMemo(() => {
+    return getNextRank(currentRank.name)
+  }, [currentRank.name])
 
   // Calculate days remaining
   const daysRemaining = examDate
     ? Math.max(0, differenceInDays(examDate, new Date()))
     : 0
 
-  // Calculate EXP progress within current rank
-  const expProgress = Math.min(
-    100,
-    ((currentExp - currentRank.minExp) /
-      (currentRank.maxExp - currentRank.minExp)) *
-      100,
+  // Calculate detailed progress & requirements toward next rank
+  const rankProgress = useMemo(() => {
+    return getRankProgressDetails(
+      currentExp,
+      weeklyStudyStats.effectiveWeeklyHours,
+      currentRank,
+      nextRank,
+    )
+  }, [currentExp, weeklyStudyStats.effectiveWeeklyHours, currentRank, nextRank])
+
+  const expProgress = rankProgress.overallProgress
+
+  // Upgrade celebration modal state
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [upgradeModalData, setUpgradeModalData] = useState<{
+    oldRank: RankInfo
+    newRank: RankInfo
+    currentExp: number
+    weeklyHours: number
+    unlockedTheme: RankTheme
+  } | null>(null)
+
+  const [upgradeBgmPreference, setUpgradeBgmPreference] =
+    useState<UpgradeBgmChoice>("solo-leveling")
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedBgm = localStorage.getItem("gate_tracker_upgrade_bgm") as UpgradeBgmChoice
+      if (savedBgm && ["solo-leveling", "phonk", "random"].includes(savedBgm)) {
+        setUpgradeBgmPreference(savedBgm)
+      }
+    }
+  }, [])
+
+  const changeUpgradeBgm = (choice: UpgradeBgmChoice) => {
+    setUpgradeBgmPreference(choice)
+    if (typeof window !== "undefined") {
+      localStorage.setItem("gate_tracker_upgrade_bgm", choice)
+    }
+  }
+
+  // Trigger rank upgrade modal, song fanfare, and theme unlock
+  const triggerUpgradeCelebration = useCallback(
+    (
+      oldRankToCompare: RankInfo,
+      newExp: number,
+      newWeeklyHours: number,
+    ) => {
+      const candidateRank = getRank(newExp, newWeeklyHours)
+      const oldRankIdx = RANKS.findIndex((r) => r.name === oldRankToCompare.name)
+      const newRankIdx = RANKS.findIndex((r) => r.name === candidateRank.name)
+
+      if (newRankIdx > oldRankIdx) {
+        setUpgradeModalData({
+          oldRank: oldRankToCompare,
+          newRank: candidateRank,
+          currentExp: newExp,
+          weeklyHours: newWeeklyHours,
+          unlockedTheme: candidateRank.theme,
+        })
+        setShowUpgradeModal(true)
+
+        // Automatically unlock theme in unlockedCosmetics
+        setUnlockedCosmetics((prev) =>
+          prev.includes(candidateRank.theme.value)
+            ? prev
+            : [...prev, candidateRank.theme.value],
+        )
+
+        toast.success(`Hunter Awakening! Upgraded to ${candidateRank.name}-Rank`, {
+          description: `${candidateRank.title} · ${candidateRank.theme.name} Theme Unlocked!`,
+        })
+
+        if (soundEnabled) {
+          sounds.playUpgradeBgm(upgradeBgmPreference)
+        }
+      }
+    },
+    [soundEnabled, sounds, upgradeBgmPreference, setUnlockedCosmetics],
   )
 
   // Apply theme colors
   useEffect(() => {
     const root = document.documentElement
-    const selectedThemeData = themes.find((t) => t.value === selectedTheme)
+    const selectedThemeData = ALL_THEMES.find((t) => t.value === selectedTheme)
     if (selectedThemeData) {
       root.style.setProperty(
         "--primary",
@@ -502,24 +517,18 @@ export default function GATETracker() {
       setLastExpGained(Math.max(0, newManualExp + topicFeedback.exp))
       setShowSubmissionPopup(true)
 
-      // Check for rank up
+      // Check for rank up (considering both new EXP and updated weekly study hours)
       const newExp = currentExp + expDelta
-      const newRank =
-        ranks.find((rank) => newExp >= rank.minExp && newExp < rank.maxExp) ||
-        ranks[ranks.length - 1]
-
-      if (
-        newRank.name !== oldRank.name &&
-        ranks.findIndex((r) => r.name === newRank.name) >
-          ranks.findIndex((r) => r.name === oldRank.name)
-      ) {
-        toast.success(`Rank up! You are now ${newRank.name}-Rank`, {
-          description: newRank.description,
-        })
-        if (soundEnabled) {
-          setTimeout(() => sounds.levelUp(), 500)
-        }
-      }
+      const updatedReports = [
+        ...dailyReports.filter((r) => !isSameDay(r.date, new Date())),
+        newReport,
+      ]
+      const newWeeklyStats = calculateWeeklyStudyStats(updatedReports)
+      triggerUpgradeCelebration(
+        oldRank,
+        newExp,
+        newWeeklyStats.effectiveWeeklyHours,
+      )
 
       // Keep today’s saved values available for later edits.
       setStudiedTopics([])
@@ -554,8 +563,15 @@ export default function GATETracker() {
   // Apply claimed loot: bonus EXP + reward effects (titles, cosmetics, streak freezes)
   const handleLootClaimed = (loot: LootDrop) => {
     // Bonus EXP counts toward total
+    const oldRankSnapshot = currentRank
+    const newExp = currentExp + loot.bonusExp
     setCurrentExp((prev) => prev + loot.bonusExp)
     if (soundEnabled) setTimeout(() => sounds.expGain(), 150)
+    triggerUpgradeCelebration(
+      oldRankSnapshot,
+      newExp,
+      weeklyStudyStats.effectiveWeeklyHours,
+    )
 
     if (!loot.reward) return
 
@@ -616,8 +632,15 @@ export default function GATETracker() {
     if (success) {
       setReviewedToday((prev) => new Set(prev).add(id))
       if (exp > 0) {
+        const oldRankSnapshot = currentRank
+        const nextExp = currentExp + exp
         setCurrentExp((prev) => prev + exp)
         if (soundEnabled) setTimeout(() => sounds.expGain(), 150)
+        triggerUpgradeCelebration(
+          oldRankSnapshot,
+          nextExp,
+          weeklyStudyStats.effectiveWeeklyHours,
+        )
       }
     }
   }
@@ -816,30 +839,73 @@ export default function GATETracker() {
           </TabsList>
         </div>
         <div className="mt-auto hidden space-y-5 p-5 lg:block">
-          <div className="rounded-xl border bg-background/70 p-4">
-            <div className="mb-4 flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">
-                {currentRank.name}
-              </span>
-              <div>
-                <p className="text-sm font-medium">{currentRank.title}</p>
-                <p className="text-xs text-muted-foreground">
-                  {currentExp.toLocaleString()} EXP
-                </p>
+          <div className="rounded-xl border bg-background/70 p-4 relative overflow-hidden shadow-sm">
+            <div
+              className="absolute top-0 right-0 h-16 w-16 opacity-15 blur-xl pointer-events-none rounded-full"
+              style={{ backgroundColor: currentRank.theme.color }}
+            />
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span
+                  className="flex h-9 w-9 items-center justify-center rounded-lg font-mono text-base font-extrabold shadow-sm"
+                  style={{
+                    backgroundColor: `${currentRank.theme.color}20`,
+                    color: currentRank.theme.color,
+                    border: `1px solid ${currentRank.theme.color}40`,
+                  }}
+                >
+                  {currentRank.name}
+                </span>
+                <div>
+                  <p className="text-sm font-semibold leading-none">{currentRank.title}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {currentExp.toLocaleString()} EXP · {weeklyStudyStats.effectiveWeeklyHours.toFixed(1)}h/wk
+                  </p>
+                </div>
               </div>
             </div>
-            <Progress
-              value={expProgress}
-              aria-label="Progress to next rank"
-              className="h-1.5"
-            />
-            <p className="mt-2.5 text-xs leading-relaxed text-muted-foreground">
-              {nextRank
-                ? `${(nextRank.minExp - currentExp).toLocaleString()} EXP to ${nextRank.title}`
-                : "Highest rank reached"}
-            </p>
+
+            {/* Rank Progress Bar */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-[11px] text-muted-foreground">
+                <span>Rank Progress</span>
+                <span className="font-mono">{rankProgress.overallProgress}%</span>
+              </div>
+              <Progress
+                value={rankProgress.overallProgress}
+                aria-label="Progress to next rank"
+                className="h-1.5"
+              />
+            </div>
+
+            {/* Next Rank & Time Gate Status */}
+            <div className="mt-2.5 text-xs text-muted-foreground">
+              {nextRank ? (
+                <div className="space-y-1 text-[11px]">
+                  <div className="flex items-center justify-between">
+                    <span>Next: {nextRank.name}-Rank ({nextRank.title})</span>
+                  </div>
+                  {rankProgress.isTimeGated ? (
+                    <Badge variant="outline" className="text-[10px] text-amber-500 border-amber-500/30 px-1.5 py-0 mt-1">
+                      ⏳ Needs {rankProgress.hoursNeeded}h more study this week
+                    </Badge>
+                  ) : rankProgress.isExpGated ? (
+                    <Badge variant="outline" className="text-[10px] text-primary border-primary/30 px-1.5 py-0 mt-1">
+                      ⚡ Needs {rankProgress.expNeeded.toLocaleString()} EXP
+                    </Badge>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground">
+                      Needs {rankProgress.expNeeded.toLocaleString()} EXP & {nextRank.minWeeklyHours}h/wk study
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[11px] text-amber-400 font-medium">👑 Highest rank achieved!</p>
+              )}
+            </div>
+
             {activeTitle && (
-              <p className="mt-3 flex items-center gap-1.5 border-t pt-3 text-xs text-muted-foreground">
+              <p className="mt-3 flex items-center gap-1.5 border-t pt-2.5 text-xs text-muted-foreground">
                 <Crown className="h-3.5 w-3.5 shrink-0" />
                 {activeTitle}
               </p>
@@ -1079,20 +1145,53 @@ export default function GATETracker() {
                       </div>
                     ))}
                   </div>
-                  <div className="mt-7 flex flex-wrap items-center gap-3 border-t pt-5">
-                    <span className="rounded-lg bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">
-                      {currentRank.name} rank
-                    </span>
-                    <div>
-                      <p className="text-sm font-medium">
-                        {currentRank.title} · {currentExp.toLocaleString()} EXP
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {nextRank
-                          ? `${(nextRank.minExp - currentExp).toLocaleString()} EXP until ${nextRank.title}`
-                          : "Highest rank reached"}
-                      </p>
+                  <div className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t pt-5">
+                    <div className="flex items-center gap-3">
+                      <span
+                        className="rounded-lg px-3 py-2 text-sm font-bold font-mono shadow-sm"
+                        style={{
+                          backgroundColor: `${currentRank.theme.color}20`,
+                          color: currentRank.theme.color,
+                          border: `1px solid ${currentRank.theme.color}40`,
+                        }}
+                      >
+                        {currentRank.name}-Rank
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold">
+                          {currentRank.title} · {currentExp.toLocaleString()} EXP
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Weekly Study: <span className="font-medium text-foreground">{weeklyStudyStats.effectiveWeeklyHours.toFixed(1)} hrs</span>
+                          {" "}(avg {weeklyStudyStats.dailyAvgHours}h/day)
+                          {nextRank && (
+                            <>
+                              {" · "}
+                              {rankProgress.isTimeGated ? (
+                                <span className="text-amber-500 font-medium">
+                                  ⏳ Need {rankProgress.hoursNeeded} more study hours this week for {nextRank.name}-Rank
+                                </span>
+                              ) : rankProgress.isExpGated ? (
+                                <span className="text-primary font-medium">
+                                  ⚡ Need {rankProgress.expNeeded.toLocaleString()} EXP for {nextRank.name}-Rank
+                                </span>
+                              ) : (
+                                <span>
+                                  Need {rankProgress.expNeeded.toLocaleString()} EXP & {nextRank.minWeeklyHours}h/wk study for {nextRank.name}-Rank
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </p>
+                      </div>
                     </div>
+                    {nextRank && (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs font-mono">
+                          Next: {nextRank.name}-Rank ({nextRank.minWeeklyHours}h/wk min)
+                        </Badge>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -1264,54 +1363,164 @@ export default function GATETracker() {
               </Select>
             </div>
             <fieldset>
-              <legend className="mb-3 text-sm font-medium">Accent color</legend>
-              <div className="grid grid-cols-3 gap-2">
-                {themes.map((option) => (
-                  <Button
-                    key={option.value}
-                    variant="outline"
-                    size="sm"
-                    aria-pressed={selectedTheme === option.value}
-                    onClick={() => setSelectedTheme(option.value)}
-                    className={
-                      selectedTheme === option.value
-                        ? "border-primary bg-primary/5"
-                        : ""
-                    }
-                  >
-                    <span
-                      className="flex h-4 w-4 items-center justify-center rounded-full"
-                      style={{ backgroundColor: option.color }}
+              <div className="flex items-center justify-between mb-3">
+                <legend className="text-sm font-medium">Accent color</legend>
+                <Badge variant="outline" className="text-[10px] font-mono">
+                  {currentRank.name}-Rank Hunter
+                </Badge>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {ALL_THEMES.map((option) => {
+                  const unlocked = isThemeUnlocked(
+                    option.value,
+                    currentRank.name,
+                    undefined,
+                    progress.unlockedCosmetics,
+                  )
+                  const isSelected = selectedTheme === option.value
+
+                  return (
+                    <Button
+                      key={option.value}
+                      variant="outline"
+                      size="sm"
+                      disabled={!unlocked}
+                      aria-pressed={isSelected}
+                      onClick={() => {
+                        if (unlocked) {
+                          setSelectedTheme(option.value)
+                          sounds.buttonClick()
+                        }
+                      }}
+                      className={`relative flex items-center justify-start px-2 py-2.5 h-auto text-left transition-all ${
+                        isSelected
+                          ? "border-primary bg-primary/10 shadow-sm"
+                          : "hover:bg-muted/60"
+                      } ${!unlocked ? "opacity-50 cursor-not-allowed bg-muted/20" : ""}`}
                     >
-                      {selectedTheme === option.value && (
-                        <Check className="!h-3 !w-3 text-white" />
-                      )}
-                    </span>
-                    {option.name}
-                  </Button>
-                ))}
+                      <span
+                        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full mr-2 shadow-xs"
+                        style={{ backgroundColor: option.color }}
+                      >
+                        {isSelected && <Check className="!h-2.5 !w-2.5 text-white stroke-[3]" />}
+                      </span>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-semibold truncate leading-tight">
+                          {option.name}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                          {unlocked ? (
+                            <span className="text-emerald-500 font-medium">{option.requiredRank}-Rank</span>
+                          ) : (
+                            <span className="flex items-center gap-0.5 text-amber-500 font-medium">
+                              <Lock className="h-2.5 w-2.5 shrink-0" />
+                              {option.requiredRank}-Rank
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </Button>
+                  )
+                })}
               </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Themes unlock one by one as your Hunter Rank upgrades through cumulative EXP and weekly study hours.
+              </p>
             </fieldset>
-            <div className="flex items-center justify-between border-t pt-5">
-              <div>
-                <Label htmlFor="sound">Sound effects</Label>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  A little feedback for your progress.
-                </p>
+
+            <div className="space-y-3 border-t pt-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="sound">Sound effects</Label>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Audio feedback for study logs and milestones.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!soundEnabled}
+                    onClick={sounds.formSubmit}
+                    className="h-8 text-xs"
+                  >
+                    Test sound
+                  </Button>
+                  <Switch
+                    id="sound"
+                    checked={soundEnabled}
+                    onCheckedChange={changeSound}
+                  />
+                </div>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!soundEnabled}
-                onClick={sounds.formSubmit}
-              >
-                Test sound
-              </Button>
-              <Switch
-                id="sound"
-                checked={soundEnabled}
-                onCheckedChange={changeSound}
-              />
+
+              {/* Upgrade BGM Preference & Preview */}
+              <div className="rounded-xl border bg-muted/30 p-3.5 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <Label htmlFor="upgrade-bgm" className="text-xs font-semibold">
+                      Rank Upgrade Music
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Motivational fanfare played upon reaching each new rank.
+                    </p>
+                  </div>
+                  <Select
+                    value={upgradeBgmPreference}
+                    onValueChange={(val) => changeUpgradeBgm(val as UpgradeBgmChoice)}
+                    disabled={!soundEnabled}
+                  >
+                    <SelectTrigger id="upgrade-bgm" className="w-full sm:w-[190px] h-8 text-xs">
+                      <SelectValue placeholder="Select music" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="solo-leveling" className="text-xs">
+                        Solo Leveling Awakening
+                      </SelectItem>
+                      <SelectItem value="phonk" className="text-xs">
+                        Motivation Phonk (808)
+                      </SelectItem>
+                      <SelectItem value="random" className="text-xs">
+                        Alternating Mix
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-2.5">
+                  <span className="text-[11px] text-muted-foreground">
+                    Preview upgrade music:
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs px-2"
+                      disabled={!soundEnabled}
+                      onClick={() => {
+                        sounds.unlock()
+                        sounds.previewBgm("solo-leveling")
+                      }}
+                    >
+                      <Play className="mr-1 h-3 w-3 text-primary" />
+                      Solo Leveling
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs px-2"
+                      disabled={!soundEnabled}
+                      onClick={() => {
+                        sounds.unlock()
+                        sounds.previewBgm("phonk")
+                      }}
+                    >
+                      <Play className="mr-1 h-3 w-3 text-primary" />
+                      Phonk
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </div>
             <ChangePasswordSettings />
             <Button
@@ -1339,6 +1548,27 @@ export default function GATETracker() {
         expGained={lastExpGained}
         onLootClaimed={handleLootClaimed}
       />
+      {upgradeModalData && (
+        <RankUpgradeModal
+          isOpen={showUpgradeModal}
+          onClose={() => {
+            setShowUpgradeModal(false)
+            sounds.stopUpgradeBgm()
+          }}
+          oldRank={upgradeModalData.oldRank}
+          newRank={upgradeModalData.newRank}
+          currentExp={upgradeModalData.currentExp}
+          weeklyHours={upgradeModalData.weeklyHours}
+          unlockedTheme={upgradeModalData.unlockedTheme}
+          onEquipTheme={(val) => {
+            setSelectedTheme(val)
+            sounds.toggleSwitch()
+          }}
+          isThemeEquipped={selectedTheme === upgradeModalData.unlockedTheme.value}
+          onPlayBgm={() => sounds.playUpgradeBgm(upgradeBgmPreference)}
+          onStopBgm={sounds.stopUpgradeBgm}
+        />
+      )}
     </Tabs>
   )
 }

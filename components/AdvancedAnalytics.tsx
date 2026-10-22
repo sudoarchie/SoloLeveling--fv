@@ -20,6 +20,7 @@ import {
   Flame,
 } from "lucide-react"
 import { format, startOfWeek, endOfWeek, isWithinInterval } from "date-fns"
+import { RANKS, getRank } from "@/lib/ranks"
 
 interface DailyReport {
   date: Date
@@ -167,12 +168,13 @@ export default function AdvancedAnalytics({
 
     // Time-based insights
     const projectedExp = avgExp * daysRemaining
-    const currentRankThreshold = 4000 // S-Rank threshold
+    const sRank = RANKS.find((r) => r.name === "S")
+    const currentRankThreshold = sRank?.minExp ?? 4500
     if (currentExp + projectedExp >= currentRankThreshold) {
       insights.push({
         type: "success",
         title: "S-Rank Achievable",
-        message: `At current pace, you'll reach S-Rank before GATE! Keep up the momentum.`,
+        message: `At current pace, you'll reach S-Rank before GATE! Maintain your weekly study consistency.`,
         icon: Award,
       })
     }
@@ -422,22 +424,25 @@ export default function AdvancedAnalytics({
                   <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
                     <h4 className="text-sm font-semibold text-gray-300 mb-2">Projected Rank</h4>
                     {(() => {
-                      const avgExp = dailyReports.reduce((sum, r) => sum + r.expGained, 0) / dailyReports.length
+                      const avgExp =
+                        dailyReports.length > 0
+                          ? dailyReports.reduce((sum, r) => sum + r.expGained, 0) / dailyReports.length
+                          : 0
                       const projectedExp = currentExp + avgExp * daysRemaining
-                      let projectedRank = "E"
+                      const avgDailyPractice =
+                        dailyReports.length > 0
+                          ? dailyReports.reduce((sum, r) => sum + (r.questionPracticeHours || 0), 0) / dailyReports.length
+                          : 0
+                      const projectedWeeklyHours = avgDailyPractice * 7
 
-                      if (projectedExp >= 7000) projectedRank = "SSS"
-                      else if (projectedExp >= 5500) projectedRank = "SS"
-                      else if (projectedExp >= 4000) projectedRank = "S"
-                      else if (projectedExp >= 2800) projectedRank = "A"
-                      else if (projectedExp >= 1800) projectedRank = "B"
-                      else if (projectedExp >= 1000) projectedRank = "C"
-                      else if (projectedExp >= 400) projectedRank = "D"
+                      const projectedRankObj = getRank(projectedExp, projectedWeeklyHours)
 
                       return (
                         <div>
-                          <p className="text-yellow-400 font-bold text-xl">{projectedRank}-Rank</p>
-                          <p className="text-gray-400 text-sm">{projectedExp.toFixed(0)} EXP projected</p>
+                          <p className="text-yellow-400 font-bold text-xl">{projectedRankObj.name}-Rank ({projectedRankObj.title})</p>
+                          <p className="text-gray-400 text-sm mt-0.5">
+                            {projectedExp.toFixed(0)} EXP · {projectedWeeklyHours.toFixed(1)}h/wk pace
+                          </p>
                         </div>
                       )
                     })()}

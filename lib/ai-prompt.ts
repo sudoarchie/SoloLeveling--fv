@@ -8,32 +8,29 @@ export interface UserContext {
   streak: any
 }
 
-// ── Rank table (mirrors app/page.tsx) ──────────────────────
-
-const ranks = [
-  { name: "E", title: "Novice", min: 0, max: 500 },
-  { name: "D", title: "Learner", min: 500, max: 1200 },
-  { name: "C", title: "Student", min: 1200, max: 2000 },
-  { name: "B", title: "Scholar", min: 2000, max: 3000 },
-  { name: "A", title: "Expert", min: 3000, max: 4500 },
-  { name: "S", title: "Master", min: 4500, max: 6500 },
-  { name: "SS", title: "Elite", min: 6500, max: 9000 },
-  { name: "SSS", title: "Legend", min: 9000, max: 15000 },
-]
-
-function getRank(exp: number) {
-  return (
-    ranks.find((r) => exp >= r.min && exp < r.max) ?? ranks[ranks.length - 1]
-  )
-}
+import {
+  RANKS,
+  getRank as getHunterRank,
+  getNextRank,
+  calculateWeeklyStudyStats,
+} from "@/lib/ranks"
 
 // ── Base context (shared by briefing + chat) ───────────────
 
 function buildBaseContext(ctx: UserContext): string {
   const { progress, reports, attempts, topics, streak } = ctx
   const exp = progress?.current_exp ?? 0
-  const rank = getRank(exp)
-  const nextRank = ranks[ranks.indexOf(rank) + 1]
+
+  // Format reports for calculateWeeklyStudyStats
+  const formattedReports = (reports || []).map((r) => ({
+    date: r.report_date,
+    practiceHours: Number(r.practice_hours || 0),
+    lecturesCompleted: Number(r.lectures_completed || 0),
+  }))
+  const weeklyStudyStats = calculateWeeklyStudyStats(formattedReports)
+
+  const rank = getHunterRank(exp, weeklyStudyStats.effectiveWeeklyHours)
+  const nextRank = getNextRank(rank.name)
 
   const daysToExam = progress?.exam_date
     ? Math.max(
@@ -111,8 +108,8 @@ function buildBaseContext(ctx: UserContext): string {
 You evaluate the student through the lens of cognitive psychology and behavioral neuroscience, backed by their real preparation telemetry.
 
 ═══ STUDENT PROFILE ═══
-• Total EXP: ${exp} (${rank.name}-Rank: "${rank.title}")
-${nextRank ? `• Next rank: ${nextRank.name}-Rank at ${nextRank.min} EXP (need ${nextRank.min - exp} more)` : "• Highest rank achieved!"}
+• Total EXP: ${exp} (${rank.name}-Rank: "${rank.title}" · Weekly Study: ${weeklyStudyStats.effectiveWeeklyHours.toFixed(1)} hrs/wk)
+${nextRank ? `• Next rank: ${nextRank.name}-Rank (Requires ${nextRank.minExp} EXP & ${nextRank.minWeeklyHours} hrs/wk avg study time)` : "• Highest rank achieved!"}
 • Exam Date: ${progress?.exam_date ?? "Not set"}${daysToExam !== null ? ` (${daysToExam} days remaining)` : ""}
 • Study Streak: ${streak?.current_streak ?? 0} days (longest: ${streak?.longest_streak ?? 0})
 • Total Days Completed: ${streak?.days_completed ?? 0}
