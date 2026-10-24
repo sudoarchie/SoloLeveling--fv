@@ -96,20 +96,20 @@ $$;
 
 create or replace function public.list_mock_exam_attempts()
 returns jsonb language plpgsql security definer set search_path = '' as $$
-declare expired_id uuid; result jsonb;
+declare expired_id uuid; v_result jsonb;
 begin
   if auth.uid() is null then raise exception 'Sign in to view results'; end if;
   for expired_id in select id from mock_exam_private.attempts where user_id = auth.uid()
     and status = 'in_progress' and deadline_at <= clock_timestamp() loop
     perform mock_exam_private.finish(expired_id);
   end loop;
-  select coalesce(jsonb_agg(to_jsonb(a) order by a.started_at desc), '[]'::jsonb) into result from (
+  select coalesce(jsonb_agg(to_jsonb(a) order by a.started_at desc), '[]'::jsonb) into v_result from (
     select id, paper_id, title, exam, status, started_at, deadline_at, completed_at,
-      result->'score' as score, result->'total_marks' as total_marks,
+      mock_exam_private.attempts.result->'score' as score, mock_exam_private.attempts.result->'total_marks' as total_marks,
       exp_gained, is_personal_best
     from mock_exam_private.attempts where user_id = auth.uid() order by started_at desc limit 50
   ) a;
-  return result;
+  return v_result;
 end;
 $$;
 

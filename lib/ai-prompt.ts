@@ -46,15 +46,60 @@ function buildBaseContext(ctx: UserContext): string {
   const avgExp = reports.reduce((s: number, r: any) => s + (r.exp_gained ?? 0), 0) / n
   const avgLectures =
     reports.reduce((s: number, r: any) => s + (r.lectures_completed ?? 0), 0) / n
-  const avgTopics =
-    reports.reduce((s: number, r: any) => s + (r.topics_revised ?? 0), 0) / n
-  const avgPractice =
-    reports.reduce((s: number, r: any) => s + Number(r.practice_hours ?? 0), 0) / n
+  const totalTopicsRevisedInReports = reports.reduce((s: number, r: any) => s + (r.topics_revised ?? 0), 0)
+  const totalTopicReviewsInSR = topics.reduce((s: number, t: any) => s + (t.review_count ?? 0), 0)
+  const effectiveTotalTopicsRevised = Math.max(totalTopicsRevisedInReports, totalTopicReviewsInSR)
+  const avgTopics = effectiveTotalTopicsRevised / n
+  const totalPracticeHours = reports.reduce((s: number, r: any) => s + Number(r.practice_hours ?? 0), 0)
+  const avgPractice = totalPracticeHours / n
   const morningCount = reports.filter((r: any) => r.morning_session).length
   const exerciseCount = reports.filter((r: any) => r.exercise_done).length
   const highDistractionCount = reports.filter(
     (r: any) => r.distractions_level === "High",
   ).length
+
+  // Calculate dynamic continuous active study streak directly from reports
+  const sortedReports = [...(reports || [])].sort((a, b) => b.report_date.localeCompare(a.report_date))
+  const todayStr = new Date().toISOString().split("T")[0]
+  const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split("T")[0]
+
+  let dynamicStudyStreak = 0
+  if (sortedReports.length > 0) {
+    const latestDate = sortedReports[0].report_date
+    if (latestDate === todayStr || latestDate === yesterdayStr) {
+      let expectedDate = new Date(latestDate + "T00:00:00")
+      for (const r of sortedReports) {
+        const rDate = new Date(r.report_date + "T00:00:00")
+        const diffDays = Math.round((expectedDate.getTime() - rDate.getTime()) / 86400000)
+        if (diffDays === 0) {
+          const hasActivity =
+            Number(r.practice_hours ?? 0) > 0 ||
+            Number(r.lectures_completed ?? 0) > 0 ||
+            Number(r.topics_revised ?? 0) > 0 ||
+            Number(r.exp_gained ?? 0) > 0
+          if (hasActivity) {
+            dynamicStudyStreak++
+            expectedDate = new Date(rDate.getTime() - 86400000)
+          } else {
+            break
+          }
+        } else {
+          break
+        }
+      }
+    }
+  }
+
+  const activeDaysTracked = reports.filter(
+    (r: any) =>
+      Number(r.practice_hours ?? 0) > 0 ||
+      Number(r.lectures_completed ?? 0) > 0 ||
+      Number(r.topics_revised ?? 0) > 0 ||
+      Number(r.exp_gained ?? 0) > 0,
+  ).length
+  const effectiveStreak = Math.max(streak?.current_streak ?? 0, dynamicStudyStreak)
+  const totalDaysCompleted = Math.max(streak?.days_completed ?? 0, activeDaysTracked)
+  const earliestReportDate = sortedReports.length > 0 ? sortedReports[sortedReports.length - 1].report_date : null
 
   // Mental state distribution
   const mentalStates: Record<string, number> = {}
@@ -75,22 +120,49 @@ function buildBaseContext(ctx: UserContext): string {
           .join("\n  ")
       : "No mock tests taken yet."
 
-  // Revision topics
-  const now = new Date()
+  // Spaced repetition topic breakdown
+  const todayDateStr = new Date().toISOString().split("T")[0]
   const dueTopics = topics.filter(
-    (t: any) => !t.mastered && new Date(t.next_review_date) <= now,
+    (t: any) => !t.mastered && t.next_review_date <= todayDateStr,
+  )
+  const overdueTopics = topics.filter(
+    (t: any) => !t.mastered && t.next_review_date < todayDateStr,
+  )
+  const dueTodayTopics = topics.filter(
+    (t: any) => !t.mastered && t.next_review_date === todayDateStr,
+  )
+  const onScheduleTopics = topics.filter(
+    (t: any) => !t.mastered && t.next_review_date > todayDateStr,
   )
   const masteredTopics = topics.filter((t: any) => t.mastered)
-  const stuckTopics = topics.filter(
-    (t: any) => t.stage === 0 && !t.mastered,
+  const neverReviewedTopics = topics.filter(
+    (t: any) => t.stage === 0 && (t.review_count ?? 0) === 0 && !t.mastered,
   )
+
+  const topicsList = topics.length > 0
+    ? topics
+        .map((t: any) => {
+          let statusText = ""
+          if (t.mastered) {
+            statusText = "✓ Mastered"
+          } else if (t.next_review_date < todayDateStr) {
+            statusText = `⚠️ OVERDUE (was due ${t.next_review_date})`
+          } else if (t.next_review_date === todayDateStr) {
+            statusText = "🔔 DUE TODAY for review"
+          } else {
+            statusText = `✓ On Schedule (passed Stage ${t.stage}/4, next review due on ${t.next_review_date})`
+          }
+          return `  - "${t.name}" [${statusText} | Difficulty: ${t.difficulty || "medium"} | Reviews logged: ${t.review_count ?? 0}]`
+        })
+        .join("\n")
+    : "  No topics tracked yet."
 
   // Recent daily logs
   const recentLogs = reports
     .slice(0, 7)
     .map(
       (r: any) =>
-        `  ${r.report_date}: ${r.lectures_completed} lectures, ${r.topics_revised} topics, ${r.practice_hours}h practice, EXP=${r.exp_gained}, distraction=${r.distractions_level}, mental="${r.mental_state || "—"}"`,
+        `  ${r.report_date}: ${r.lectures_completed} lectures, ${r.topics_revised} topics revised, ${r.practice_hours}h focus/practice, EXP=${r.exp_gained}, distraction=${r.distractions_level}, mental="${r.mental_state || "—"}"`,
     )
     .join("\n")
 
@@ -110,16 +182,18 @@ You evaluate the student through the lens of cognitive psychology and behavioral
 ═══ STUDENT PROFILE ═══
 • Total EXP: ${exp} (${rank.name}-Rank: "${rank.title}" · Weekly Study: ${weeklyStudyStats.effectiveWeeklyHours.toFixed(1)} hrs/wk)
 ${nextRank ? `• Next rank: ${nextRank.name}-Rank (Requires ${nextRank.minExp} EXP & ${nextRank.minWeeklyHours} hrs/wk avg study time)` : "• Highest rank achieved!"}
-• Exam Date: ${progress?.exam_date ?? "Not set"}${daysToExam !== null ? ` (${daysToExam} days remaining)` : ""}
-• Study Streak: ${streak?.current_streak ?? 0} days (longest: ${streak?.longest_streak ?? 0})
-• Total Days Completed: ${streak?.days_completed ?? 0}
+• Exam Date: ${progress?.exam_date ?? "Not set"}${daysToExam !== null ? ` (${daysToExam} days remaining until exam)` : ""}
+• Tracker Onboarding Timeline: Student has logged ${reports.length} days of study data (active study on ${totalDaysCompleted} days, tracked since ${earliestReportDate || "recently"}).
+• Current Study Streak: ${effectiveStreak} days active streak (longest: ${Math.max(streak?.longest_streak ?? 0, effectiveStreak)} days)
 • Streak Freezes Available: ${streak?.streak_freezes ?? 0}
 
 ═══ LAST ${reports.length} DAYS — TELEMETRY ═══
+• Tracking Timeline: Active for ${reports.length} days (${totalDaysCompleted} study days logged)
 • Avg EXP/day: ${avgExp.toFixed(0)}
-• Avg lectures/day: ${avgLectures.toFixed(1)}
+• Avg lectures completed/day: ${avgLectures.toFixed(1)}
 • Avg topics revised/day: ${avgTopics.toFixed(1)}
-• Avg practice hours/day: ${avgPractice.toFixed(1)}
+• Avg study/practice focus hours/day: ${avgPractice.toFixed(1)} (${totalPracticeHours.toFixed(1)} total focus hrs logged)
+  (Note: Study hours include Pomodoro focus blocks, concept lecture comprehension, notes review, and numerical practice.)
 • Morning sessions: ${morningCount}/${reports.length} days (${((morningCount / n) * 100).toFixed(0)}%)
 • Exercise done: ${exerciseCount}/${reports.length} days (${((exerciseCount / n) * 100).toFixed(0)}%)
 • High distraction days: ${highDistractionCount}/${reports.length}
@@ -131,13 +205,16 @@ ${recentLogs || "  No logs yet."}
 
 ═══ MOCK TEST HISTORY (${attempts.length} attempts) ═══
   ${mockSummary}
-${attempts.length > 0 ? `• Average mock score: ${(attempts.reduce((s: number, a: any) => s + Number(a.score_pct ?? 0), 0) / attempts.length).toFixed(1)}%` : ""}
+${attempts.length > 0 ? `• Average mock score: ${(attempts.reduce((s: number, a: any) => s + Number(a.score_pct ?? 0), 0) / attempts.length).toFixed(1)}%` : `• Status: 0 mock tests taken so far. (Context: Student has only tracked ${reports.length} days of foundational study. ${daysToExam !== null ? `${daysToExam} days remaining until exam.` : ""})`}
 
-═══ REVISION TOPICS (${topics.length} tracked) ═══
-• Due for review NOW: ${dueTopics.length}
-• Mastered: ${masteredTopics.length}
-• Stuck at stage 0 (never reviewed): ${stuckTopics.length}
-${topics.length > 0 ? "• All topics:\n  " + topics.map((t: any) => `${t.name} [stage ${t.stage}/4, ${t.difficulty}, ${t.mastered ? "✓mastered" : `next: ${t.next_review_date}`}]`).join("\n  ") : "• No topics tracked yet."}
+═══ REVISION & SPACED REPETITION (${topics.length} topics tracked) ═══
+• Total Spaced Reviews Completed: ${totalTopicReviewsInSR}
+• On-Schedule Topics (passed previous review stage, awaiting future scheduled date): ${onScheduleTopics.length}
+• Overdue for Review: ${overdueTopics.length}
+• Due Today for Review: ${dueTodayTopics.length}
+• Mastered Topics: ${masteredTopics.length}
+• Unreviewed / Stage 0 Topics: ${neverReviewedTopics.length}
+${topics.length > 0 ? "• Tracked Topics Breakdown:\n" + topicsList : "• No topics tracked yet."}
 
 ═══ MENTOR BEHAVIOR & METHODOLOGY ═══
 1. COGNITIVE PSYCHOLOGY & NEUROSCIENCE FOUNDATION:
@@ -147,24 +224,29 @@ ${topics.length > 0 ? "• All topics:\n  " + topics.map((t: any) => `${t.name} 
      • Interleaving & Desirable Difficulty: Urge them to alternate problem types rather than block-practicing one formula.
      • Prefrontal Fatigue & Dopamine Management: Address distractions, sleep, and morning mental clarity scientifically.
 
-2. SCOLD & CALL OUT COMPLACENCY (TOUGH LOVE):
+2. ACCURACY & DATA GROUNDING (CRITICAL):
+   - DO NOT CONFUSE DAYS REMAINING WITH DAYS STUDIED: The student has only been tracking for ${reports.length} days (${totalDaysCompleted} active days). ${daysToExam !== null ? `There are ${daysToExam} days remaining until the exam date.` : ""} NEVER claim "0 mock tests in ${daysToExam} days" or accuse them of months of inaction when they only started tracking recently. Early preparation focuses on syllabus coverage before full-length mocks.
+   - ACCURATE REVISION STATUS: Topics in the Spaced Repetition system at Stage 1 or higher with upcoming review dates are ON SCHEDULE, NOT "stuck" or "in debt". The student reviewed them to reach Stage 1. Only scold about revision if topics are actually overdue or if the student has never scheduled any revision topics.
+   - STUDY & PRACTICE HOURS CONTEXT: Telemetry hours represent the student's total focused deep-work time (Pomodoro focus blocks, lecture study, note synthesis, and problem solving). When the student is progressing through subjects like Computer Networks, DBMS, or Algorithms, their focus hours reflect active syllabus acquisition. Do NOT invent false accusations of "mindless DSA block practice" when the student's logged topics and focus sessions indicate they are working through Computer Networks, DBMS, or theory notes.
+   - HONEST TELEMETRY: The student has an active streak of ${effectiveStreak} days. Acknowledge and reinforce their real consistency rather than claiming 0 streak.
+
+3. SCOLD & CALL OUT REAL COMPLACENCY (TOUGH LOVE):
    - You are NOT a sycophantic cheerleader. You are an uncompromising coach who wants them to crack GATE with a top rank.
    - If practice hours are 0 or negligible while lecture hours are high: Scold them bluntly. Watching lectures without solving numericals is passive entertainment, not preparation.
    - If overdue revision topics are sitting ignored: Confront them on memory decay.
    - If they break a streak or log repeated high distractions: Demand accountability. Do not coddle excuses or self-pity.
    - Be firm, direct, and intellectually demanding — but always couple criticism with the exact physiological/behavioral fix.
 
-3. ASK DIAGNOSTIC & PROBING QUESTIONS:
+4. ASK DIAGNOSTIC & PROBING QUESTIONS:
    - When the student's query is vague or their data reveals a red flag, do not just lecture — cross-examine them:
-     • "Why did your question practice drop to zero over the last three days?"
      • "When you solve previous year questions, are you attempting them timed and closed-book, or are you checking solutions after 3 minutes?"
-     • "You logged 'High' distraction twice this week — what specific trigger hijacked your focus?"
+     • "You logged 'High' distraction on 2026-10-19 — what specific trigger hijacked your focus?"
    - End with 1 sharp, direct question that forces them to confront their current habit or decision.
 
-4. REALISTIC EXAM URGENCY:
+5. REALISTIC EXAM URGENCY:
    - Factor in days remaining (${daysToExam ?? "unknown"}). Every day that passes reduces syllabus coverage runway. Adjust advice dynamically from foundational building to test-taking endurance and error-reduction.
 
-5. CONCISE, STRUCTURED DELIVERY & MARKDOWN FORMATTING:
+6. CONCISE, STRUCTURED DELIVERY & MARKDOWN FORMATTING:
    - Write cleanly with bullet points, bold emphasis, and markdown tables when comparing figures.
    - TABLE FORMAT RULE: When creating a markdown table, you MUST always include the standard header separator line (e.g. | --- | --- |) and surround all rows with leading and trailing pipes (| col 1 | col 2 |).
    - Keep advice razor-sharp and under 450 words.${

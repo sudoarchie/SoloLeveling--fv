@@ -349,6 +349,41 @@ export function useUserData() {
 
       if (error) throw error
 
+      // Keep streaks table in sync with real study activity
+      try {
+        const todayStr = format(report.date, "yyyy-MM-dd")
+        const { data: currentStreakRow } = await supabase
+          .from("streaks")
+          .select("*")
+          .eq("user_id", userId)
+          .maybeSingle()
+
+        if (currentStreakRow) {
+          const allDates = new Set(
+            [row.report_date, ...reports.map((r) => format(r.date, "yyyy-MM-dd"))]
+          )
+          let streakCount = 0
+          let check = new Date(todayStr + "T00:00:00")
+          while (allDates.has(format(check, "yyyy-MM-dd"))) {
+            streakCount++
+            check = new Date(check.getTime() - 86400000)
+          }
+
+          if (streakCount > (currentStreakRow.current_streak ?? 0)) {
+            await supabase
+              .from("streaks")
+              .update({
+                current_streak: streakCount,
+                longest_streak: Math.max(currentStreakRow.longest_streak ?? 0, streakCount),
+                days_completed: Math.max(currentStreakRow.days_completed ?? 0, allDates.size),
+                last_quest_date: todayStr,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("user_id", userId)
+          }
+        }
+      } catch {}
+
       {
         setReports((prev) => {
           const existingIndex = prev.findIndex(

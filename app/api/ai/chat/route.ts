@@ -98,20 +98,22 @@ export async function POST(req: NextRequest) {
       .eq("user_id", user.id)
       .eq("insight_date", today)
       .maybeSingle(),
-    supabase
-      .from("ai_chat_sessions")
-      .select("id, title, messages, summary, updated_at")
-      .eq("user_id", user.id)
-      .order("updated_at", { ascending: false })
-      .limit(10)
-      .catch?.(() => ({ data: null })) ?? Promise.resolve({ data: null }),
-    supabase
-      .from("pomodoro_sessions")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("started_at", { ascending: false })
-      .limit(5)
-      .catch?.(() => ({ data: null })) ?? Promise.resolve({ data: null }),
+    Promise.resolve(
+      supabase
+        .from("ai_chat_sessions")
+        .select("id, title, messages, summary, updated_at")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false })
+        .limit(10),
+    ).catch(() => ({ data: null })),
+    Promise.resolve(
+      supabase
+        .from("pomodoro_sessions")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("started_at", { ascending: false })
+        .limit(5),
+    ).catch(() => ({ data: null })),
   ])
 
   const userAttempts = Array.isArray(attemptsRes.data)

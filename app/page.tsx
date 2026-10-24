@@ -56,6 +56,8 @@ import {
   Timer,
   Lock,
   Play,
+  Film,
+  Shuffle,
 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -114,6 +116,10 @@ import {
   type RankTheme,
 } from "@/lib/ranks"
 import RankUpgradeModal from "@/components/RankUpgradeModal"
+import {
+  MOTIVATIONAL_SHORTS,
+  type UpgradeMediaChoice,
+} from "@/lib/motivationalVideos"
 
 const ranks: RankInfo[] = RANKS
 const themes = ALL_THEMES
@@ -300,27 +306,48 @@ export default function GATETracker() {
     weeklyHours: number
     unlockedTheme: RankTheme
   } | null>(null)
+  const [previewShortId, setPreviewShortId] = useState<string | undefined>(undefined)
+  const [isUpgradePreview, setIsUpgradePreview] = useState(false)
 
-  const [upgradeBgmPreference, setUpgradeBgmPreference] =
-    useState<UpgradeBgmChoice>("solo-leveling")
+  const [upgradeMediaPreference, setUpgradeMediaPreference] =
+    useState<UpgradeMediaChoice>("shorts-random")
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const savedBgm = localStorage.getItem("gate_tracker_upgrade_bgm") as UpgradeBgmChoice
-      if (savedBgm && ["solo-leveling", "phonk", "random"].includes(savedBgm)) {
-        setUpgradeBgmPreference(savedBgm)
+      const savedMedia = localStorage.getItem("gate_tracker_upgrade_media") as UpgradeMediaChoice
+      if (savedMedia) {
+        setUpgradeMediaPreference(savedMedia)
+      } else {
+        const oldBgm = localStorage.getItem("gate_tracker_upgrade_bgm")
+        if (oldBgm === "solo-leveling" || oldBgm === "phonk") {
+          setUpgradeMediaPreference("shorts-random")
+        }
       }
     }
   }, [])
 
-  const changeUpgradeBgm = (choice: UpgradeBgmChoice) => {
-    setUpgradeBgmPreference(choice)
+  const changeUpgradeMedia = (choice: UpgradeMediaChoice) => {
+    setUpgradeMediaPreference(choice)
     if (typeof window !== "undefined") {
-      localStorage.setItem("gate_tracker_upgrade_bgm", choice)
+      localStorage.setItem("gate_tracker_upgrade_media", choice)
     }
   }
 
-  // Trigger rank upgrade modal, song fanfare, and theme unlock
+  const handlePreviewUpgradeMedia = (shortId?: string) => {
+    sounds.unlock()
+    setUpgradeModalData({
+      oldRank: currentRank,
+      newRank: nextRank || currentRank,
+      currentExp: currentExp,
+      weeklyHours: weeklyStudyStats.effectiveWeeklyHours,
+      unlockedTheme: (nextRank || currentRank).theme,
+    })
+    setPreviewShortId(shortId && shortId !== "shorts-random" ? shortId : undefined)
+    setIsUpgradePreview(true)
+    setShowUpgradeModal(true)
+  }
+
+  // Trigger rank upgrade modal, video short celebration, and theme unlock
   const triggerUpgradeCelebration = useCallback(
     (
       oldRankToCompare: RankInfo,
@@ -339,6 +366,8 @@ export default function GATETracker() {
           weeklyHours: newWeeklyHours,
           unlockedTheme: candidateRank.theme,
         })
+        setPreviewShortId(undefined)
+        setIsUpgradePreview(false)
         setShowUpgradeModal(true)
 
         // Automatically unlock theme in unlockedCosmetics
@@ -352,12 +381,16 @@ export default function GATETracker() {
           description: `${candidateRank.title} · ${candidateRank.theme.name} Theme Unlocked!`,
         })
 
-        if (soundEnabled) {
-          sounds.playUpgradeBgm(upgradeBgmPreference)
+        // If audio-only BGM is chosen, play background audio; otherwise video plays with its own audio!
+        if (
+          soundEnabled &&
+          (upgradeMediaPreference === "solo-leveling" || upgradeMediaPreference === "phonk")
+        ) {
+          sounds.playUpgradeBgm(upgradeMediaPreference)
         }
       }
     },
-    [soundEnabled, sounds, upgradeBgmPreference, setUnlockedCosmetics],
+    [soundEnabled, sounds, upgradeMediaPreference, setUnlockedCosmetics],
   )
 
   // Apply theme colors
@@ -478,9 +511,15 @@ export default function GATETracker() {
       // Delta added to user_progress.currentExp
       const expDelta = newManualExp - prevManualExp + topicFeedback.exp
 
+      const finalTopicsRevised = Math.max(
+        Number(formData.topicsRevised || 0),
+        topicFeedback.reviewed,
+      )
+
       const newReport: DailyReport = {
         date: new Date(),
         ...formData,
+        topicsRevised: finalTopicsRevised,
         practiceHours: finalPracticeHours,
         expGained: finalExpGained,
       }
@@ -910,6 +949,16 @@ export default function GATETracker() {
                 {activeTitle}
               </p>
             )}
+
+            {/* Quick Motivation Short Button */}
+            <button
+              onClick={() => handlePreviewUpgradeMedia("shorts-random")}
+              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 py-1.5 text-[11px] font-semibold text-primary transition-all hover:bg-primary/20 hover:border-primary/50"
+              title="Watch a motivational short to lock in"
+            >
+              <Film className="h-3 w-3" />
+              <span>Lock In · Motivational Short</span>
+            </button>
           </div>
           <div className="space-y-1">
             <Button
@@ -1454,34 +1503,39 @@ export default function GATETracker() {
                 </div>
               </div>
 
-              {/* Upgrade BGM Preference & Preview */}
+              {/* Upgrade Celebration Media (Shorts / Video / BGM) */}
               <div className="rounded-xl border bg-muted/30 p-3.5 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
-                    <Label htmlFor="upgrade-bgm" className="text-xs font-semibold">
-                      Rank Upgrade Music
+                    <Label htmlFor="upgrade-media" className="text-xs font-semibold flex items-center gap-1.5">
+                      <Film className="h-3.5 w-3.5 text-primary" />
+                      Rank Upgrade Media
                     </Label>
                     <p className="text-[11px] text-muted-foreground">
-                      Motivational fanfare played upon reaching each new rank.
+                      Motivational video shorts played upon reaching each new rank.
                     </p>
                   </div>
                   <Select
-                    value={upgradeBgmPreference}
-                    onValueChange={(val) => changeUpgradeBgm(val as UpgradeBgmChoice)}
-                    disabled={!soundEnabled}
+                    value={upgradeMediaPreference}
+                    onValueChange={(val) => changeUpgradeMedia(val as UpgradeMediaChoice)}
                   >
-                    <SelectTrigger id="upgrade-bgm" className="w-full sm:w-[190px] h-8 text-xs">
-                      <SelectValue placeholder="Select music" />
+                    <SelectTrigger id="upgrade-media" className="w-full sm:w-[220px] h-8 text-xs">
+                      <SelectValue placeholder="Select media" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="shorts-random" className="text-xs">
+                        🎬 Motivational Shorts (Random Mix)
+                      </SelectItem>
+                      {MOTIVATIONAL_SHORTS.map((short) => (
+                        <SelectItem key={short.id} value={short.id} className="text-xs">
+                          🎬 {short.title}
+                        </SelectItem>
+                      ))}
                       <SelectItem value="solo-leveling" className="text-xs">
-                        Solo Leveling Awakening
+                        🎵 Solo Leveling Awakening (BGM)
                       </SelectItem>
                       <SelectItem value="phonk" className="text-xs">
-                        Motivation Phonk (808)
-                      </SelectItem>
-                      <SelectItem value="random" className="text-xs">
-                        Alternating Mix
+                        🎵 Motivation Phonk (BGM)
                       </SelectItem>
                     </SelectContent>
                   </Select>
@@ -1489,35 +1543,40 @@ export default function GATETracker() {
 
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-2.5">
                   <span className="text-[11px] text-muted-foreground">
-                    Preview upgrade music:
+                    Preview upgrade media:
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <Button
-                      variant="outline"
+                      variant="default"
                       size="sm"
-                      className="h-7 text-xs px-2"
-                      disabled={!soundEnabled}
-                      onClick={() => {
-                        sounds.unlock()
-                        sounds.previewBgm("solo-leveling")
-                      }}
+                      className="h-7 text-xs px-2.5 gap-1.5 font-medium shadow-sm"
+                      onClick={() => handlePreviewUpgradeMedia(upgradeMediaPreference)}
                     >
-                      <Play className="mr-1 h-3 w-3 text-primary" />
-                      Solo Leveling
+                      <Play className="h-3 w-3 fill-current" />
+                      Watch Short
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-7 text-xs px-2"
-                      disabled={!soundEnabled}
-                      onClick={() => {
-                        sounds.unlock()
-                        sounds.previewBgm("phonk")
-                      }}
+                      className="h-7 text-xs px-2 gap-1"
+                      onClick={() => handlePreviewUpgradeMedia("shorts-random")}
                     >
-                      <Play className="mr-1 h-3 w-3 text-primary" />
-                      Phonk
+                      <Shuffle className="h-3 w-3 text-primary" />
+                      Test Rank Upgrade
                     </Button>
+                    {soundEnabled && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          sounds.unlock()
+                          sounds.previewBgm("solo-leveling")
+                        }}
+                      >
+                        BGM Audio
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1553,6 +1612,8 @@ export default function GATETracker() {
           isOpen={showUpgradeModal}
           onClose={() => {
             setShowUpgradeModal(false)
+            setIsUpgradePreview(false)
+            setPreviewShortId(undefined)
             sounds.stopUpgradeBgm()
           }}
           oldRank={upgradeModalData.oldRank}
@@ -1565,7 +1626,14 @@ export default function GATETracker() {
             sounds.toggleSwitch()
           }}
           isThemeEquipped={selectedTheme === upgradeModalData.unlockedTheme.value}
-          onPlayBgm={() => sounds.playUpgradeBgm(upgradeBgmPreference)}
+          mediaChoice={upgradeMediaPreference}
+          initialShortId={previewShortId}
+          isPreview={isUpgradePreview}
+          onPlayBgm={
+            upgradeMediaPreference === "solo-leveling" || upgradeMediaPreference === "phonk"
+              ? () => sounds.playUpgradeBgm(upgradeMediaPreference)
+              : undefined
+          }
           onStopBgm={sounds.stopUpgradeBgm}
         />
       )}

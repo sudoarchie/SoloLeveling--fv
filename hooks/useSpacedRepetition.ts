@@ -218,6 +218,45 @@ export function useSpacedRepetition() {
         .eq("id", id)
         .eq("user_id", userId)
 
+      // Sync topic review to today's daily_reports (topics_revised & exp_gained)
+      try {
+        const today = todayStr()
+        const { data: todayReport } = await supabase
+          .from("daily_reports")
+          .select("id, topics_revised, exp_gained")
+          .eq("user_id", userId)
+          .eq("report_date", today)
+          .maybeSingle()
+
+        if (todayReport) {
+          await supabase
+            .from("daily_reports")
+            .update({
+              topics_revised: (todayReport.topics_revised || 0) + 1,
+              exp_gained: (todayReport.exp_gained || 0) + expEarned,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", todayReport.id)
+        } else {
+          await supabase.from("daily_reports").insert({
+            user_id: userId,
+            report_date: today,
+            practice_hours: 0,
+            exp_gained: expEarned,
+            lectures_completed: 0,
+            topics_revised: 1,
+            morning_session: false,
+            exercise_done: false,
+            distractions_level: "None",
+          })
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("user-progress-changed"))
+        }
+      } catch (syncErr) {
+        console.error("Failed to sync topic review to daily_reports:", syncErr)
+      }
+
       return expEarned
     },
     [supabase, topics, userId],

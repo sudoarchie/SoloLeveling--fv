@@ -94,12 +94,14 @@ export function useAIMentor() {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
-      supabase
-        .from("ai_chat_sessions")
-        .select("id, title, messages, summary, created_at, updated_at")
-        .eq("user_id", user.id)
-        .order("updated_at", { ascending: false })
-        .limit(20)
+      Promise.resolve(
+        supabase
+          .from("ai_chat_sessions")
+          .select("id, title, messages, summary, created_at, updated_at")
+          .eq("user_id", user.id)
+          .order("updated_at", { ascending: false })
+          .limit(20),
+      )
         .then(({ data, error: supaErr }) => {
           if (!supaErr && data && Array.isArray(data) && data.length > 0) {
             setSessions((prev) => {
