@@ -54,10 +54,7 @@ import {
   GraduationCap,
   FileQuestion,
   Timer,
-  Lock,
   Play,
-  Film,
-  Shuffle,
 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -78,10 +75,7 @@ import {
   YAxis,
   CartesianGrid,
 } from "recharts"
-import {
-  useSoundEffects,
-  type UpgradeBgmChoice,
-} from "@/hooks/useSoundEffects"
+import { useSoundEffects } from "@/hooks/useSoundEffects"
 import { useDailyQuests } from "@/hooks/useDailyQuests"
 import {
   useSpacedRepetition,
@@ -106,23 +100,23 @@ import { usePomodoro } from "@/hooks/usePomodoro"
 import { Badge } from "@/components/ui/badge"
 import {
   RANKS,
-  ALL_THEMES,
   getRank,
   getNextRank,
   getRankProgressDetails,
   calculateWeeklyStudyStats,
-  isThemeUnlocked,
   type RankInfo,
-  type RankTheme,
 } from "@/lib/ranks"
 import RankUpgradeModal from "@/components/RankUpgradeModal"
-import {
-  MOTIVATIONAL_SHORTS,
-  type UpgradeMediaChoice,
-} from "@/lib/motivationalVideos"
 
 const ranks: RankInfo[] = RANKS
-const themes = ALL_THEMES
+const themes = [
+  { name: "Blue", value: "blue", color: "hsl(221, 83%, 53%)" },
+  { name: "Green", value: "green", color: "hsl(142, 76%, 36%)" },
+  { name: "Purple", value: "purple", color: "hsl(262, 83%, 58%)" },
+  { name: "Orange", value: "orange", color: "hsl(25, 95%, 53%)" },
+  { name: "Red", value: "red", color: "hsl(0, 84%, 60%)" },
+  { name: "Pink", value: "pink", color: "hsl(336, 75%, 40%)" },
+]
 
 const chartConfig = {
   lectures: { label: "Lectures", color: "hsl(var(--chart-1))" },
@@ -304,50 +298,9 @@ export default function GATETracker() {
     newRank: RankInfo
     currentExp: number
     weeklyHours: number
-    unlockedTheme: RankTheme
   } | null>(null)
-  const [previewShortId, setPreviewShortId] = useState<string | undefined>(undefined)
-  const [isUpgradePreview, setIsUpgradePreview] = useState(false)
 
-  const [upgradeMediaPreference, setUpgradeMediaPreference] =
-    useState<UpgradeMediaChoice>("shorts-random")
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const savedMedia = localStorage.getItem("gate_tracker_upgrade_media") as UpgradeMediaChoice
-      if (savedMedia) {
-        setUpgradeMediaPreference(savedMedia)
-      } else {
-        const oldBgm = localStorage.getItem("gate_tracker_upgrade_bgm")
-        if (oldBgm === "solo-leveling" || oldBgm === "phonk") {
-          setUpgradeMediaPreference("shorts-random")
-        }
-      }
-    }
-  }, [])
-
-  const changeUpgradeMedia = (choice: UpgradeMediaChoice) => {
-    setUpgradeMediaPreference(choice)
-    if (typeof window !== "undefined") {
-      localStorage.setItem("gate_tracker_upgrade_media", choice)
-    }
-  }
-
-  const handlePreviewUpgradeMedia = (shortId?: string) => {
-    sounds.unlock()
-    setUpgradeModalData({
-      oldRank: currentRank,
-      newRank: nextRank || currentRank,
-      currentExp: currentExp,
-      weeklyHours: weeklyStudyStats.effectiveWeeklyHours,
-      unlockedTheme: (nextRank || currentRank).theme,
-    })
-    setPreviewShortId(shortId && shortId !== "shorts-random" ? shortId : undefined)
-    setIsUpgradePreview(true)
-    setShowUpgradeModal(true)
-  }
-
-  // Trigger rank upgrade modal, video short celebration, and theme unlock
+  // Trigger rank upgrade modal celebration
   const triggerUpgradeCelebration = useCallback(
     (
       oldRankToCompare: RankInfo,
@@ -364,39 +317,25 @@ export default function GATETracker() {
           newRank: candidateRank,
           currentExp: newExp,
           weeklyHours: newWeeklyHours,
-          unlockedTheme: candidateRank.theme,
         })
-        setPreviewShortId(undefined)
-        setIsUpgradePreview(false)
         setShowUpgradeModal(true)
 
-        // Automatically unlock theme in unlockedCosmetics
-        setUnlockedCosmetics((prev) =>
-          prev.includes(candidateRank.theme.value)
-            ? prev
-            : [...prev, candidateRank.theme.value],
-        )
-
         toast.success(`Hunter Awakening! Upgraded to ${candidateRank.name}-Rank`, {
-          description: `${candidateRank.title} · ${candidateRank.theme.name} Theme Unlocked!`,
+          description: `${candidateRank.title} · Keep up your weekly consistency!`,
         })
 
-        // If audio-only BGM is chosen, play background audio; otherwise video plays with its own audio!
-        if (
-          soundEnabled &&
-          (upgradeMediaPreference === "solo-leveling" || upgradeMediaPreference === "phonk")
-        ) {
-          sounds.playUpgradeBgm(upgradeMediaPreference)
+        if (soundEnabled) {
+          sounds.levelUp()
         }
       }
     },
-    [soundEnabled, sounds, upgradeMediaPreference, setUnlockedCosmetics],
+    [soundEnabled, sounds],
   )
 
   // Apply theme colors
   useEffect(() => {
     const root = document.documentElement
-    const selectedThemeData = ALL_THEMES.find((t) => t.value === selectedTheme)
+    const selectedThemeData = themes.find((t) => t.value === selectedTheme)
     if (selectedThemeData) {
       root.style.setProperty(
         "--primary",
@@ -878,29 +817,16 @@ export default function GATETracker() {
           </TabsList>
         </div>
         <div className="mt-auto hidden space-y-5 p-5 lg:block">
-          <div className="rounded-xl border bg-background/70 p-4 relative overflow-hidden shadow-sm">
-            <div
-              className="absolute top-0 right-0 h-16 w-16 opacity-15 blur-xl pointer-events-none rounded-full"
-              style={{ backgroundColor: currentRank.theme.color }}
-            />
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <span
-                  className="flex h-9 w-9 items-center justify-center rounded-lg font-mono text-base font-extrabold shadow-sm"
-                  style={{
-                    backgroundColor: `${currentRank.theme.color}20`,
-                    color: currentRank.theme.color,
-                    border: `1px solid ${currentRank.theme.color}40`,
-                  }}
-                >
-                  {currentRank.name}
-                </span>
-                <div>
-                  <p className="text-sm font-semibold leading-none">{currentRank.title}</p>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    {currentExp.toLocaleString()} EXP · {weeklyStudyStats.effectiveWeeklyHours.toFixed(1)}h/wk
-                  </p>
-                </div>
+          <div className="rounded-xl border bg-background/70 p-4">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">
+                {currentRank.name}
+              </span>
+              <div>
+                <p className="text-sm font-semibold leading-none">{currentRank.title}</p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {currentExp.toLocaleString()} EXP · {weeklyStudyStats.effectiveWeeklyHours.toFixed(1)}h/wk
+                </p>
               </div>
             </div>
 
@@ -949,16 +875,6 @@ export default function GATETracker() {
                 {activeTitle}
               </p>
             )}
-
-            {/* Quick Motivation Short Button */}
-            <button
-              onClick={() => handlePreviewUpgradeMedia("shorts-random")}
-              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 py-1.5 text-[11px] font-semibold text-primary transition-all hover:bg-primary/20 hover:border-primary/50"
-              title="Watch a motivational short to lock in"
-            >
-              <Film className="h-3 w-3" />
-              <span>Lock In · Motivational Short</span>
-            </button>
           </div>
           <div className="space-y-1">
             <Button
@@ -1196,14 +1112,7 @@ export default function GATETracker() {
                   </div>
                   <div className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t pt-5">
                     <div className="flex items-center gap-3">
-                      <span
-                        className="rounded-lg px-3 py-2 text-sm font-bold font-mono shadow-sm"
-                        style={{
-                          backgroundColor: `${currentRank.theme.color}20`,
-                          color: currentRank.theme.color,
-                          border: `1px solid ${currentRank.theme.color}40`,
-                        }}
-                      >
+                      <span className="rounded-lg bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">
                         {currentRank.name}-Rank
                       </span>
                       <div>
@@ -1412,173 +1321,60 @@ export default function GATETracker() {
               </Select>
             </div>
             <fieldset>
-              <div className="flex items-center justify-between mb-3">
-                <legend className="text-sm font-medium">Accent color</legend>
-                <Badge variant="outline" className="text-[10px] font-mono">
-                  {currentRank.name}-Rank Hunter
-                </Badge>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {ALL_THEMES.map((option) => {
-                  const unlocked = isThemeUnlocked(
-                    option.value,
-                    currentRank.name,
-                    undefined,
-                    progress.unlockedCosmetics,
-                  )
-                  const isSelected = selectedTheme === option.value
-
-                  return (
-                    <Button
-                      key={option.value}
-                      variant="outline"
-                      size="sm"
-                      disabled={!unlocked}
-                      aria-pressed={isSelected}
-                      onClick={() => {
-                        if (unlocked) {
-                          setSelectedTheme(option.value)
-                          sounds.buttonClick()
-                        }
-                      }}
-                      className={`relative flex items-center justify-start px-2 py-2.5 h-auto text-left transition-all ${
-                        isSelected
-                          ? "border-primary bg-primary/10 shadow-sm"
-                          : "hover:bg-muted/60"
-                      } ${!unlocked ? "opacity-50 cursor-not-allowed bg-muted/20" : ""}`}
+              <legend className="mb-3 text-sm font-medium">Accent color</legend>
+              <div className="grid grid-cols-3 gap-2">
+                {themes.map((option) => (
+                  <Button
+                    key={option.value}
+                    variant="outline"
+                    size="sm"
+                    aria-pressed={selectedTheme === option.value}
+                    onClick={() => {
+                      setSelectedTheme(option.value)
+                      sounds.buttonClick()
+                    }}
+                    className={
+                      selectedTheme === option.value
+                        ? "border-primary bg-primary/5"
+                        : ""
+                    }
+                  >
+                    <span
+                      className="flex h-4 w-4 items-center justify-center rounded-full mr-2"
+                      style={{ backgroundColor: option.color }}
                     >
-                      <span
-                        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full mr-2 shadow-xs"
-                        style={{ backgroundColor: option.color }}
-                      >
-                        {isSelected && <Check className="!h-2.5 !w-2.5 text-white stroke-[3]" />}
-                      </span>
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-xs font-semibold truncate leading-tight">
-                          {option.name}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
-                          {unlocked ? (
-                            <span className="text-emerald-500 font-medium">{option.requiredRank}-Rank</span>
-                          ) : (
-                            <span className="flex items-center gap-0.5 text-amber-500 font-medium">
-                              <Lock className="h-2.5 w-2.5 shrink-0" />
-                              {option.requiredRank}-Rank
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    </Button>
-                  )
-                })}
+                      {selectedTheme === option.value && (
+                        <Check className="!h-3 !w-3 text-white" />
+                      )}
+                    </span>
+                    {option.name}
+                  </Button>
+                ))}
               </div>
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Themes unlock one by one as your Hunter Rank upgrades through cumulative EXP and weekly study hours.
-              </p>
             </fieldset>
 
-            <div className="space-y-3 border-t pt-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label htmlFor="sound">Sound effects</Label>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Audio feedback for study logs and milestones.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={!soundEnabled}
-                    onClick={sounds.formSubmit}
-                    className="h-8 text-xs"
-                  >
-                    Test sound
-                  </Button>
-                  <Switch
-                    id="sound"
-                    checked={soundEnabled}
-                    onCheckedChange={changeSound}
-                  />
-                </div>
+            <div className="flex items-center justify-between border-t pt-5">
+              <div>
+                <Label htmlFor="sound">Sound effects</Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A little feedback for your progress.
+                </p>
               </div>
-
-              {/* Upgrade Celebration Media (Shorts / Video / BGM) */}
-              <div className="rounded-xl border bg-muted/30 p-3.5 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <Label htmlFor="upgrade-media" className="text-xs font-semibold flex items-center gap-1.5">
-                      <Film className="h-3.5 w-3.5 text-primary" />
-                      Rank Upgrade Media
-                    </Label>
-                    <p className="text-[11px] text-muted-foreground">
-                      Motivational video shorts played upon reaching each new rank.
-                    </p>
-                  </div>
-                  <Select
-                    value={upgradeMediaPreference}
-                    onValueChange={(val) => changeUpgradeMedia(val as UpgradeMediaChoice)}
-                  >
-                    <SelectTrigger id="upgrade-media" className="w-full sm:w-[220px] h-8 text-xs">
-                      <SelectValue placeholder="Select media" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="shorts-random" className="text-xs">
-                        🎬 Motivational Shorts (Random Mix)
-                      </SelectItem>
-                      {MOTIVATIONAL_SHORTS.map((short) => (
-                        <SelectItem key={short.id} value={short.id} className="text-xs">
-                          🎬 {short.title}
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="solo-leveling" className="text-xs">
-                        🎵 Solo Leveling Awakening (BGM)
-                      </SelectItem>
-                      <SelectItem value="phonk" className="text-xs">
-                        🎵 Motivation Phonk (BGM)
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-2.5">
-                  <span className="text-[11px] text-muted-foreground">
-                    Preview upgrade media:
-                  </span>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Button
-                      variant="default"
-                      size="sm"
-                      className="h-7 text-xs px-2.5 gap-1.5 font-medium shadow-sm"
-                      onClick={() => handlePreviewUpgradeMedia(upgradeMediaPreference)}
-                    >
-                      <Play className="h-3 w-3 fill-current" />
-                      Watch Short
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs px-2 gap-1"
-                      onClick={() => handlePreviewUpgradeMedia("shorts-random")}
-                    >
-                      <Shuffle className="h-3 w-3 text-primary" />
-                      Test Rank Upgrade
-                    </Button>
-                    {soundEnabled && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
-                        onClick={() => {
-                          sounds.unlock()
-                          sounds.previewBgm("solo-leveling")
-                        }}
-                      >
-                        BGM Audio
-                      </Button>
-                    )}
-                  </div>
-                </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={!soundEnabled}
+                  onClick={sounds.formSubmit}
+                  className="h-8 text-xs"
+                >
+                  Test sound
+                </Button>
+                <Switch
+                  id="sound"
+                  checked={soundEnabled}
+                  onCheckedChange={changeSound}
+                />
               </div>
             </div>
             <ChangePasswordSettings />
@@ -1610,31 +1406,11 @@ export default function GATETracker() {
       {upgradeModalData && (
         <RankUpgradeModal
           isOpen={showUpgradeModal}
-          onClose={() => {
-            setShowUpgradeModal(false)
-            setIsUpgradePreview(false)
-            setPreviewShortId(undefined)
-            sounds.stopUpgradeBgm()
-          }}
+          onClose={() => setShowUpgradeModal(false)}
           oldRank={upgradeModalData.oldRank}
           newRank={upgradeModalData.newRank}
           currentExp={upgradeModalData.currentExp}
           weeklyHours={upgradeModalData.weeklyHours}
-          unlockedTheme={upgradeModalData.unlockedTheme}
-          onEquipTheme={(val) => {
-            setSelectedTheme(val)
-            sounds.toggleSwitch()
-          }}
-          isThemeEquipped={selectedTheme === upgradeModalData.unlockedTheme.value}
-          mediaChoice={upgradeMediaPreference}
-          initialShortId={previewShortId}
-          isPreview={isUpgradePreview}
-          onPlayBgm={
-            upgradeMediaPreference === "solo-leveling" || upgradeMediaPreference === "phonk"
-              ? () => sounds.playUpgradeBgm(upgradeMediaPreference)
-              : undefined
-          }
-          onStopBgm={sounds.stopUpgradeBgm}
         />
       )}
     </Tabs>

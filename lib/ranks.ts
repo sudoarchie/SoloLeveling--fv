@@ -1,15 +1,25 @@
-import { subDays, isWithinInterval, startOfDay, endOfDay, startOfWeek, endOfWeek } from "date-fns"
+import { isWithinInterval, startOfWeek, endOfWeek, subDays } from "date-fns"
 
 export type RankName = "E" | "D" | "C" | "B" | "A" | "S" | "SS" | "SSS"
 
-export interface RankTheme {
+export interface ThemeOption {
   name: string
   value: string
   color: string // HSL format e.g. "hsl(221, 83%, 53%)"
-  glowColor: string
-  requiredRank: RankName
-  description: string
 }
+
+export type RankTheme = ThemeOption
+
+export const THEMES: ThemeOption[] = [
+  { name: "Blue", value: "blue", color: "hsl(221, 83%, 53%)" },
+  { name: "Green", value: "green", color: "hsl(142, 76%, 36%)" },
+  { name: "Purple", value: "purple", color: "hsl(262, 83%, 58%)" },
+  { name: "Orange", value: "orange", color: "hsl(25, 95%, 53%)" },
+  { name: "Red", value: "red", color: "hsl(0, 84%, 60%)" },
+  { name: "Pink", value: "pink", color: "hsl(336, 75%, 40%)" },
+]
+
+export const ALL_THEMES: ThemeOption[] = THEMES
 
 export interface RankInfo {
   name: RankName
@@ -24,74 +34,6 @@ export interface RankInfo {
   minDailyAvgHours: number
   description: string
   quote: string
-  theme: RankTheme
-}
-
-export const RANK_THEMES: Record<RankName, RankTheme> = {
-  E: {
-    name: "Hunter Blue",
-    value: "blue",
-    color: "hsl(221, 83%, 53%)",
-    glowColor: "rgba(59, 130, 246, 0.5)",
-    requiredRank: "E",
-    description: "The baseline mana hue of every awakened hunter.",
-  },
-  D: {
-    name: "Emerald Gate",
-    value: "green",
-    color: "hsl(142, 76%, 36%)",
-    glowColor: "rgba(34, 197, 94, 0.5)",
-    requiredRank: "D",
-    description: "Vitality radiating from consistent daily dungeon training.",
-  },
-  C: {
-    name: "Amethyst Mana",
-    value: "purple",
-    color: "hsl(262, 83%, 58%)",
-    glowColor: "rgba(168, 85, 247, 0.5)",
-    requiredRank: "C",
-    description: "Concentrated arcane force earned through dedicated weekly problem practice.",
-  },
-  B: {
-    name: "Solar Radiance",
-    value: "orange",
-    color: "hsl(25, 95%, 53%)",
-    glowColor: "rgba(249, 115, 22, 0.5)",
-    requiredRank: "B",
-    description: "Burning high-output discipline holding strong week after week.",
-  },
-  A: {
-    name: "Blood Crimson",
-    value: "red",
-    color: "hsl(0, 84%, 60%)",
-    glowColor: "rgba(239, 68, 68, 0.5)",
-    requiredRank: "A",
-    description: "Aggressive battle aura of elite high-tier dungeon strikers.",
-  },
-  S: {
-    name: "Sakura Neon",
-    value: "pink",
-    color: "hsl(336, 75%, 48%)",
-    glowColor: "rgba(236, 72, 153, 0.5)",
-    requiredRank: "S",
-    description: "Pure S-Rank mana crystallization. Elite national hunter presence.",
-  },
-  SS: {
-    name: "Shadow Azure",
-    value: "cyan",
-    color: "hsl(189, 94%, 43%)",
-    glowColor: "rgba(6, 182, 212, 0.5)",
-    requiredRank: "SS",
-    description: "Luminescent sovereign power. The apex domain before coronation.",
-  },
-  SSS: {
-    name: "Abyssal Monarch",
-    value: "gold",
-    color: "hsl(45, 93%, 47%)",
-    glowColor: "rgba(234, 179, 8, 0.6)",
-    requiredRank: "SSS",
-    description: "The golden aura of the Shadow Monarch. Absolute mastery over preparation.",
-  },
 }
 
 export const RANKS: RankInfo[] = [
@@ -106,137 +48,119 @@ export const RANKS: RankInfo[] = [
     minDailyAvgHours: 0,
     description: "Every Monarch started as the weakest hunter. Begin your awakening.",
     quote: "I am an E-Rank hunter. But I will not stay weak.",
-    theme: RANK_THEMES.E,
   },
   {
     name: "D",
     title: "Learner Hunter",
     subtitle: "Dungeon Survivor",
-    color: "hsl(142, 76%, 36%)",
+    color: "hsl(var(--primary))",
     minExp: 500,
     maxExp: 1200,
     minWeeklyHours: 5.0,
     minDailyAvgHours: 0.7,
     description: "Building foundational stamina with consistent weekly study sessions.",
     quote: "Surviving the double dungeon requires focus, endurance, and persistence.",
-    theme: RANK_THEMES.D,
   },
   {
     name: "C",
     title: "Striker Hunter",
     subtitle: "Raid Specialist",
-    color: "hsl(262, 83%, 58%)",
+    color: "hsl(var(--primary))",
     minExp: 1200,
     maxExp: 2000,
     minWeeklyHours: 10.0,
     minDailyAvgHours: 1.4,
     description: "Solid conceptual command and steady double-digit weekly hours.",
     quote: "The mana coursing through you is now undeniable. Keep attacking weaknesses.",
-    theme: RANK_THEMES.C,
   },
   {
     name: "B",
     title: "Elite Scholar",
     subtitle: "High Raid Veteran",
-    color: "hsl(25, 95%, 53%)",
+    color: "hsl(var(--primary))",
     minExp: 2000,
     maxExp: 3000,
     minWeeklyHours: 16.0,
     minDailyAvgHours: 2.3,
     description: "Disciplined study routine holding firm across major subjects.",
     quote: "You are no longer ordinary. The gates yield to your daily discipline.",
-    theme: RANK_THEMES.B,
   },
   {
     name: "A",
     title: "High Hunter",
     subtitle: "Guild Champion",
-    color: "hsl(0, 84%, 60%)",
+    color: "hsl(var(--primary))",
     minExp: 3000,
     maxExp: 4500,
     minWeeklyHours: 24.0,
     minDailyAvgHours: 3.4,
     description: "Deep conceptual command and elite weekly endurance under pressure.",
     quote: "A-Rank presence. The Association takes notice of your relentless grind.",
-    theme: RANK_THEMES.A,
   },
   {
     name: "S",
-    title: "National Hunter",
-    subtitle: "Living Legend",
-    color: "hsl(336, 75%, 48%)",
+    title: "Shadow Sovereign",
+    subtitle: "National Striker",
+    color: "hsl(var(--primary))",
     minExp: 4500,
     maxExp: 6500,
     minWeeklyHours: 32.0,
     minDailyAvgHours: 4.6,
-    description: "Elite top-tier performance unmatched by ordinary students.",
-    quote: "Your power bends the curve. Top percentile rank is within reach.",
-    theme: RANK_THEMES.S,
+    description: "Ascending beyond ordinary hunters into sovereign preparation authority.",
+    quote: "The system chose you for a reason. Command your focus like an army.",
   },
   {
     name: "SS",
-    title: "Monarch Candidate",
-    subtitle: "Apex Sovereign",
-    color: "hsl(189, 94%, 43%)",
+    title: "National Rank Hunter",
+    subtitle: "Pinnacle Gatekeeper",
+    color: "hsl(var(--primary))",
     minExp: 6500,
     maxExp: 9000,
     minWeeklyHours: 40.0,
     minDailyAvgHours: 5.7,
-    description: "Top 1% discipline. Deep work is your second nature every single day.",
-    quote: "The shadows whisper your name. Sovereign awakening is at hand.",
-    theme: RANK_THEMES.SS,
+    description: "Legendary output ranking among the top elite percentile nationwide.",
+    quote: "At this summit, few can match your weekly stamina and conceptual depth.",
   },
   {
     name: "SSS",
     title: "Shadow Monarch",
-    subtitle: "Ruler of Shadows",
-    color: "hsl(45, 93%, 47%)",
+    subtitle: "Absolute Sovereign",
+    color: "hsl(var(--primary))",
     minExp: 9000,
     maxExp: 15000,
-    minWeeklyHours: 48.0,
-    minDailyAvgHours: 6.9,
-    description: "Complete domain expansion. The absolute pinnacle of preparation.",
-    quote: "ARISE. The highest rank has been attained.",
-    theme: RANK_THEMES.SSS,
+    minWeeklyHours: 50.0,
+    minDailyAvgHours: 7.1,
+    description: "Absolute mastery over GATE preparation. Arise and conquer.",
+    quote: "ARISE. The Monarch of preparation bows to no question paper.",
   },
 ]
 
-export const ALL_THEMES: RankTheme[] = Object.values(RANK_THEMES)
-
 export interface WeeklyStudyStats {
-  /** Sum of study hours in the rolling 7-day window */
   rolling7DaysHours: number
-  /** Sum of study hours in the current calendar week */
   calendarWeekHours: number
-  /** Daily average over the rolling 7-day window (hours/day) */
   dailyAvgHours: number
-  /** Effective weekly study hours used for rank calculation */
   effectiveWeeklyHours: number
-  /** Number of active study days in the rolling 7-day window */
   activeDays7: number
 }
 
 /**
- * Calculates rolling weekly study time and daily average from daily reports.
+ * Calculates study time metrics for rank calculations.
  */
 export function calculateWeeklyStudyStats(
-  reports: Array<{
-    date: Date | string
-    practiceHours?: number
-    lecturesCompleted?: number
-  }>,
-  referenceDate: Date = new Date(),
+  dailyReports: Array<{ date: Date | string; practiceHours?: number; lecturesCompleted?: number }>,
 ): WeeklyStudyStats {
-  const windowStart = startOfDay(subDays(referenceDate, 6))
-  const windowEnd = endOfDay(referenceDate)
-  const weekStart = startOfWeek(referenceDate, { weekStartsOn: 1 })
-  const weekEnd = endOfWeek(referenceDate, { weekStartsOn: 1 })
+  const now = new Date()
+  const windowStart = subDays(now, 7)
+  const windowEnd = now
+
+  const weekStart = startOfWeek(now, { weekStartsOn: 1 })
+  const weekEnd = endOfWeek(now, { weekStartsOn: 1 })
 
   let rollingHours = 0
-  let activeDays7 = 0
   let calendarHours = 0
+  let activeDays7 = 0
 
-  reports.forEach((report) => {
+  dailyReports.forEach((report) => {
     const reportDate = typeof report.date === "string" ? new Date(report.date) : report.date
     if (isNaN(reportDate.getTime())) return
 
@@ -372,30 +296,13 @@ export function getRankProgressDetails(
 }
 
 /**
- * Check if a specific color theme is unlocked for a user.
- * A theme is unlocked if:
- * 1. It is the base theme ('blue')
- * 2. Or user has reached or exceeded the required rank
- * 3. Or it has been awarded in `unlockedCosmetics`
+ * Backward compatibility: All color themes are unlocked.
  */
 export function isThemeUnlocked(
-  themeValue: string,
-  userRankName: RankName,
-  highestRankName?: RankName,
-  unlockedCosmetics: string[] = [],
+  _themeValue: string,
+  _userRankName?: RankName,
+  _highestRankName?: RankName,
+  _unlockedCosmetics: string[] = [],
 ): boolean {
-  if (themeValue === "blue") return true
-  if (unlockedCosmetics.includes(themeValue)) return true
-
-  const theme = ALL_THEMES.find((t) => t.value === themeValue)
-  if (!theme) return false
-
-  const themeRankIndex = RANKS.findIndex((r) => r.name === theme.requiredRank)
-  const userRankIndex = RANKS.findIndex((r) => r.name === userRankName)
-  const highestRankIndex = highestRankName
-    ? RANKS.findIndex((r) => r.name === highestRankName)
-    : -1
-
-  const effectiveRankIndex = Math.max(userRankIndex, highestRankIndex)
-  return effectiveRankIndex >= themeRankIndex
+  return true
 }

@@ -300,6 +300,8 @@ riskLevel must be "low", "medium", or "high" based on overall exam readiness.`,
   ]
 }
 
+import { formatStudyPatternForPrompt, type StudyPatternAnalysis } from "./study-pattern"
+
 // ── Chat prompt (for live conversation) ────────────────────
 
 export interface PomodoroFocusContext {
@@ -309,10 +311,20 @@ export interface PomodoroFocusContext {
   status?: string
   timeLeftSeconds?: number
   completedTodayCount?: number
+  activeSessionId?: string | null
+  startedAt?: string | null
+  pauseCount?: number
+  totalPausedSeconds?: number
+  lastPausedAt?: string | null
+  events?: any[]
+  studyPattern?: StudyPatternAnalysis | null
   recentSessions?: Array<{
     description: string
     durationMinutes: number
     completedAt?: string
+    startedAt?: string
+    pauseCount?: number
+    totalPausedSeconds?: number
   }>
 }
 
@@ -363,12 +375,18 @@ ${todayInsight}`
 • Current Status: ${(activePomodoro.status || "active").toUpperCase()}
 • Focus Block Duration: ${activePomodoro.durationMinutes ?? 25} minutes (${activePomodoro.preset ?? "custom"})
 • Focus Task & Description: "${activePomodoro.description?.trim() || "Deep study block"}"
+${activePomodoro.startedAt ? `• Session Started At: ${new Date(activePomodoro.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}
+${activePomodoro.pauseCount !== undefined ? `• Pauses Taken in Current Session: ${activePomodoro.pauseCount} (${Math.round((activePomodoro.totalPausedSeconds || 0) / 60)}m total paused)` : ""}
 ${minsLeft !== null ? `• Time Remaining in Session: ${minsLeft}m ${secsLeft}s` : ""}
 • Focus Blocks Completed Today: ${activePomodoro.completedTodayCount ?? 0}
 ${
   activePomodoro.recentSessions && activePomodoro.recentSessions.length > 0
     ? `• Other Focus Blocks Completed Today:\n${activePomodoro.recentSessions
-        .map((s) => `  - "${s.description}" (${s.durationMinutes}m)`)
+        .map((s) => {
+          const pauseInfo = s.pauseCount !== undefined ? ` • ${s.pauseCount} pause(s)` : ""
+          const startInfo = s.startedAt ? ` (started ${new Date(s.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})` : ""
+          return `  - "${s.description}" (${s.durationMinutes}m)${startInfo}${pauseInfo}`
+        })
         .join("\n")}`
     : ""
 }
@@ -378,6 +396,11 @@ The student has explicitly entered this description for their focus session so y
 - Contextualize your advice, explanations, question suggestions, and problem-solving tactics directly to this task.
 - Help them stay sharp, prevent passive illusions of competence, and diagnose specific hurdles in this focus topic.
 - If they ask general questions, ground your answers in the topic of this active session whenever applicable.`
+  }
+
+  // Inject comprehensive study pattern telemetry (start timings, pause frequency, distraction analysis)
+  if (activePomodoro?.studyPattern) {
+    system += `\n\n${formatStudyPatternForPrompt(activePomodoro.studyPattern)}`
   }
 
   // Inject cross-chat memory so new chats can seamlessly reference previous chat conversations

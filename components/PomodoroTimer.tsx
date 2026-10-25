@@ -96,6 +96,9 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
     todaySessions,
     todayFocusMinutes,
     todayExpEarned,
+    startedAt,
+    pauseCount,
+    totalPausedSeconds,
     startTimer,
     resumeTimer,
     pauseTimer,
@@ -375,6 +378,26 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
               )}
             </p>
 
+            {/* Live Session Telemetry (Start time, Pauses tracking) */}
+            {(isRunning || isPaused) && (
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-2 text-[11px] text-muted-foreground font-mono">
+                {startedAt && (
+                  <span className="inline-flex items-center gap-1 bg-muted/60 px-2 py-0.5 rounded-md border border-border/50">
+                    <Clock className="h-3 w-3 text-primary" />
+                    Started at {new Date(startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1 bg-muted/60 px-2 py-0.5 rounded-md border border-border/50">
+                  <Pause className="h-3 w-3 text-amber-500" />
+                  Pauses: {pauseCount} {totalPausedSeconds > 0 ? `(${Math.round(totalPausedSeconds / 60)}m paused)` : ""}
+                </span>
+                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-sans">
+                  <Sparkles className="h-3 w-3" />
+                  Tracked by AI
+                </span>
+              </div>
+            )}
+
             {/* Visual Progress Bar */}
             <div className="mt-6 w-full max-w-md h-2 rounded-full bg-muted/60 overflow-hidden border border-border/40">
               <div
@@ -561,11 +584,14 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
                     <div className="space-y-0.5">
                       <p className="font-medium text-foreground">{s.description || "Deep focus session"}</p>
                       <p className="text-[11px] text-muted-foreground">
-                        {s.durationMinutes} min ({s.preset === "180" ? "3 Hours" : `${s.preset}m`}) •{" "}
-                        {new Date(s.completedAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {s.durationMinutes} min ({s.preset === "180" ? "3 Hours" : `${s.preset}m`})
+                        {s.startedAt && ` • Started: ${new Date(s.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+                        {" • "}Finished: {new Date(s.completedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {s.pauseCount !== undefined && (
+                          <span className="ml-1 text-muted-foreground">
+                            • {s.pauseCount === 0 ? "0 pauses (pure flow)" : `${s.pauseCount} pause${s.pauseCount > 1 ? "s" : ""}${s.totalPausedSeconds ? ` (${Math.round(s.totalPausedSeconds / 60)}m)` : ""}`}
+                          </span>
+                        )}
                       </p>
                     </div>
                     <Badge variant="secondary" className="font-mono text-[11px] text-primary">

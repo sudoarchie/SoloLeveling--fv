@@ -48,6 +48,8 @@ export function QuickFocusWidget({
     timeLeft,
     progressPct,
     activeDurationMinutes,
+    startedAt,
+    pauseCount,
     startTimer,
     resumeTimer,
     pauseTimer,
@@ -125,6 +127,15 @@ export function QuickFocusWidget({
                     <span>No task description specified</span>
                   )}
                 </p>
+                {startedAt && (
+                  <p className="text-[10px] text-muted-foreground font-mono flex items-center gap-1.5 pt-0.5">
+                    <span>Started {new Date(startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    <span>•</span>
+                    <span className={pauseCount >= 3 ? "text-amber-500 font-semibold" : ""}>
+                      {pauseCount === 0 ? "0 pauses" : `${pauseCount} pause${pauseCount > 1 ? "s" : ""}`}
+                    </span>
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center gap-2">

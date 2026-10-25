@@ -2,6 +2,7 @@ import { cookies } from "next/headers"
 import { createClient } from "@/utils/supabase/server"
 import { getLLMConfig, streamChatCompletion } from "@/lib/llm"
 import { buildChatPrompt, type UserContext } from "@/lib/ai-prompt"
+import { analyzeStudyPatterns } from "@/lib/study-pattern"
 import { NextRequest, NextResponse } from "next/server"
 
 export const runtime = "nodejs"
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
         .select("*")
         .eq("user_id", user.id)
         .order("started_at", { ascending: false })
-        .limit(5),
+        .limit(20),
     ).catch(() => ({ data: null })),
   ])
 
@@ -175,19 +176,34 @@ export async function POST(req: NextRequest) {
   }
 
   let pomodoroContext = activePomodoro || null
-  if (!pomodoroContext && pomodoroRes?.data && Array.isArray(pomodoroRes.data) && pomodoroRes.data.length > 0) {
-    const recent = pomodoroRes.data[0]
+  const pastPomodoroSessions = pomodoroRes?.data && Array.isArray(pomodoroRes.data) ? pomodoroRes.data : []
+  const studyPattern = analyzeStudyPatterns(pastPomodoroSessions, pomodoroContext)
+
+  if (!pomodoroContext && pastPomodoroSessions.length > 0) {
+    const recent = pastPomodoroSessions[0]
     pomodoroContext = {
       preset: recent.preset,
       durationMinutes: recent.duration_minutes,
       description: recent.description,
-      status: recent.completed ? "completed" : "active",
-      completedTodayCount: pomodoroRes.data.filter((p: any) => p.completed).length,
-      recentSessions: pomodoroRes.data.slice(0, 3).map((p: any) => ({
+      status: recent.status || (recent.completed ? "completed" : "active"),
+      startedAt: recent.started_at,
+      pauseCount: recent.pause_count || 0,
+      totalPausedSeconds: recent.total_paused_seconds || 0,
+      completedTodayCount: pastPomodoroSessions.filter((p: any) => p.completed).length,
+      studyPattern,
+      recentSessions: pastPomodoroSessions.slice(0, 5).map((p: any) => ({
         description: p.description,
         durationMinutes: p.duration_minutes,
-        completedAt: p.started_at,
+        completedAt: p.ended_at || p.started_at,
+        startedAt: p.started_at,
+        pauseCount: p.pause_count || 0,
+        totalPausedSeconds: p.total_paused_seconds || 0,
       })),
+    }
+  } else if (pomodoroContext) {
+    pomodoroContext = {
+      ...pomodoroContext,
+      studyPattern: pomodoroContext.studyPattern || studyPattern,
     }
   }
 

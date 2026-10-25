@@ -232,3 +232,89 @@ create index if not exists idx_user_mock_attempts_user
   on public.user_mock_attempts (user_id, attempted_at desc);
 create index if not exists idx_user_mock_attempts_exam
   on public.user_mock_attempts (exam_id, attempted_at desc);
+
+
+-- ============================================================
+-- 8. Pomodoro Focus Sessions & Timer Events Tracking
+-- ============================================================
+
+create table if not exists public.pomodoro_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  preset text not null,
+  duration_minutes integer not null,
+  description text not null default '',
+  status text not null default 'completed',
+  completed boolean not null default false,
+  exp_awarded integer not null default 0,
+  started_at timestamptz not null default now(),
+  ended_at timestamptz default null,
+  pause_count integer not null default 0,
+  total_paused_seconds integer not null default 0,
+  actual_focus_seconds integer not null default 0,
+  last_paused_at timestamptz default null,
+  last_resumed_at timestamptz default null,
+  events jsonb not null default '[]'::jsonb
+);
+
+create index if not exists idx_pomodoro_sessions_user_date
+  on public.pomodoro_sessions (user_id, started_at desc);
+
+create index if not exists idx_pomodoro_sessions_user_status
+  on public.pomodoro_sessions (user_id, status);
+
+alter table public.pomodoro_sessions enable row level security;
+
+create policy "Users can view own pomodoro sessions"
+  on public.pomodoro_sessions for select
+  using (auth.uid() = user_id);
+
+create policy "Users can insert own pomodoro sessions"
+  on public.pomodoro_sessions for insert
+  with check (auth.uid() = user_id);
+
+create policy "Users can update own pomodoro sessions"
+  on public.pomodoro_sessions for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create policy "Users can delete own pomodoro sessions"
+  on public.pomodoro_sessions for delete
+  using (auth.uid() = user_id);
+
+-- Dedicated Pomodoro Timer Events Table
+create table if not exists public.pomodoro_timer_events (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid references public.pomodoro_sessions(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  event_type text not null,
+  created_at timestamptz not null default now(),
+  time_left_seconds integer default null,
+  pause_duration_seconds integer default null,
+  metadata jsonb default '{}'::jsonb
+);
+
+create index if not exists idx_pomodoro_timer_events_session
+  on public.pomodoro_timer_events (session_id, created_at asc);
+
+create index if not exists idx_pomodoro_timer_events_user_time
+  on public.pomodoro_timer_events (user_id, created_at desc);
+
+alter table public.pomodoro_timer_events enable row level security;
+
+create policy "Users can view own timer events"
+  on public.pomodoro_timer_events for select
+  using (auth.uid() = user_id);
+
+create policy "Users can insert own timer events"
+  on public.pomodoro_timer_events for insert
+  with check (auth.uid() = user_id);
+
+create policy "Users can update own timer events"
+  on public.pomodoro_timer_events for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create policy "Users can delete own timer events"
+  on public.pomodoro_timer_events for delete
+  using (auth.uid() = user_id);

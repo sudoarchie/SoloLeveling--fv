@@ -4,10 +4,12 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { createClient } from "@/utils/supabase/client"
 import { toast } from "sonner"
 import { format, isSameDay } from "date-fns"
+import { analyzeStudyPatterns, type TimerEvent } from "@/lib/study-pattern"
 
 export type PomodoroPreset = "25" | "90" | "180" | "custom"
 export type PomodoroStatus = "idle" | "running" | "paused" | "completed"
 export type PomodoroMode = "work" | "break"
+export type { TimerEvent } from "@/lib/study-pattern"
 
 export interface PomodoroSessionRecord {
   id: string
@@ -16,6 +18,12 @@ export interface PomodoroSessionRecord {
   description: string
   completedAt: string
   expAwarded: number
+  startedAt?: string
+  pauseCount?: number
+  totalPausedSeconds?: number
+  actualFocusSeconds?: number
+  status?: "completed" | "abandoned" | "running" | "paused"
+  events?: TimerEvent[]
 }
 
 interface StoredPomodoroState {
@@ -27,6 +35,12 @@ interface StoredPomodoroState {
   targetEndTime: number | null
   pausedTimeLeft: number | null
   durationMinutes: number
+  activeSessionId?: string | null
+  startedAt?: string | null
+  pauseCount?: number
+  totalPausedSeconds?: number
+  lastPausedAt?: string | null
+  events?: TimerEvent[]
 }
 
 const STORAGE_KEY_STATE = "gate_tracker_pomodoro_state_v2"
@@ -40,7 +54,11 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
     description:
       "cn lecture Videos 5–7 | GATE 2016–2018 Layer Functions & Headers OSI & TCP/IP Reference Models, Layering Architecture & Encapsulation",
     completedAt: "2026-10-20T16:09:00.000Z",
+    startedAt: "2026-10-20T13:00:00.000Z",
+    pauseCount: 1,
+    totalPausedSeconds: 540,
     expAwarded: 250,
+    status: "completed",
   },
   {
     id: "pomodoro-seed-2",
@@ -48,7 +66,11 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
     durationMinutes: 180,
     description: "Operating Systems & Computer Networks Deep Focus Block",
     completedAt: "2026-10-20T14:15:00.000Z",
+    startedAt: "2026-10-20T11:15:00.000Z",
+    pauseCount: 2,
+    totalPausedSeconds: 600,
     expAwarded: 250,
+    status: "completed",
   },
   {
     id: "pomodoro-seed-3",
@@ -56,7 +78,11 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
     durationMinutes: 90,
     description: "DSA & Algorithms Problem Practice",
     completedAt: "2026-10-20T11:45:00.000Z",
+    startedAt: "2026-10-20T10:15:00.000Z",
+    pauseCount: 0,
+    totalPausedSeconds: 0,
     expAwarded: 120,
+    status: "completed",
   },
   {
     id: "pomodoro-seed-4",
@@ -64,7 +90,11 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
     durationMinutes: 25,
     description: "Revision dsa notes",
     completedAt: "2026-10-20T12:21:00.000Z",
+    startedAt: "2026-10-20T11:55:00.000Z",
+    pauseCount: 0,
+    totalPausedSeconds: 0,
     expAwarded: 30,
+    status: "completed",
   },
   {
     id: "pomodoro-seed-5",
@@ -72,7 +102,11 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
     durationMinutes: 25,
     description: "Revision dsa notes - Quick recall",
     completedAt: "2026-10-20T10:15:00.000Z",
+    startedAt: "2026-10-20T09:50:00.000Z",
+    pauseCount: 1,
+    totalPausedSeconds: 120,
     expAwarded: 30,
+    status: "completed",
   },
   {
     id: "pomodoro-seed-6",
@@ -80,7 +114,11 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
     durationMinutes: 25,
     description: "Revision dsa notes & PYQ review",
     completedAt: "2026-10-20T09:38:00.000Z",
+    startedAt: "2026-10-20T09:12:00.000Z",
+    pauseCount: 0,
+    totalPausedSeconds: 0,
     expAwarded: 30,
+    status: "completed",
   },
   {
     id: "pomodoro-seed-7",
@@ -88,7 +126,11 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
     durationMinutes: 25,
     description: "Formula review & concepts",
     completedAt: "2026-10-20T08:30:00.000Z",
+    startedAt: "2026-10-20T08:05:00.000Z",
+    pauseCount: 0,
+    totalPausedSeconds: 0,
     expAwarded: 30,
+    status: "completed",
   },
 ]
 
@@ -165,6 +207,14 @@ export function usePomodoro() {
   const [targetEndTime, setTargetEndTime] = useState<number | null>(null)
   const [history, setHistory] = useState<PomodoroSessionRecord[]>(DEFAULT_SEEDED_SESSIONS)
 
+  // Live timer telemetry fields (persisted to DB & AI)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [startedAt, setStartedAt] = useState<string | null>(null)
+  const [pauseCount, setPauseCount] = useState<number>(0)
+  const [totalPausedSeconds, setTotalPausedSeconds] = useState<number>(0)
+  const [lastPausedAt, setLastPausedAt] = useState<string | null>(null)
+  const [events, setEvents] = useState<TimerEvent[]>([])
+
   const stateRef = useRef({
     preset,
     customMinutes,
@@ -173,6 +223,12 @@ export function usePomodoro() {
     status,
     targetEndTime,
     timeLeft,
+    activeSessionId,
+    startedAt,
+    pauseCount,
+    totalPausedSeconds,
+    lastPausedAt,
+    events,
   })
 
   // Synchronize ref
@@ -184,9 +240,15 @@ export function usePomodoro() {
     status,
     targetEndTime,
     timeLeft,
+    activeSessionId,
+    startedAt,
+    pauseCount,
+    totalPausedSeconds,
+    lastPausedAt,
+    events,
   }
 
-  // Load history & state from localStorage on initial client mount
+  // Load history & state from localStorage on initial client mount, plus sync remote history
   useEffect(() => {
     if (typeof window === "undefined") return
 
@@ -226,6 +288,13 @@ export function usePomodoro() {
         )
         setModeState(parsed.mode || "work")
 
+        if (parsed.activeSessionId) setActiveSessionId(parsed.activeSessionId)
+        if (parsed.startedAt) setStartedAt(parsed.startedAt)
+        if (typeof parsed.pauseCount === "number") setPauseCount(parsed.pauseCount)
+        if (typeof parsed.totalPausedSeconds === "number") setTotalPausedSeconds(parsed.totalPausedSeconds)
+        if (parsed.lastPausedAt) setLastPausedAt(parsed.lastPausedAt)
+        if (Array.isArray(parsed.events)) setEvents(parsed.events)
+
         if (parsed.status === "running" && parsed.targetEndTime) {
           const remaining = Math.max(0, Math.ceil((parsed.targetEndTime - Date.now()) / 1000))
           if (remaining > 0) {
@@ -254,6 +323,61 @@ export function usePomodoro() {
     } catch {
       // Ignore
     }
+
+    // Remote history synchronization with Supabase
+    const loadRemoteSessions = async () => {
+      try {
+        const supabase = createClient()
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (!user) return
+
+        const { data: remoteData, error } = await supabase
+          .from("pomodoro_sessions")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("started_at", { ascending: false })
+          .limit(50)
+
+        if (!error && Array.isArray(remoteData) && remoteData.length > 0) {
+          const remoteRecords: PomodoroSessionRecord[] = remoteData.map((row: any) => ({
+            id: row.id,
+            preset: (row.preset as PomodoroPreset) || "25",
+            durationMinutes: row.duration_minutes,
+            description: row.description || "Focus block",
+            completedAt: row.ended_at || row.started_at,
+            expAwarded: row.exp_awarded || 0,
+            startedAt: row.started_at,
+            pauseCount: row.pause_count || 0,
+            totalPausedSeconds: row.total_paused_seconds || 0,
+            actualFocusSeconds: row.actual_focus_seconds || 0,
+            status: row.status,
+            events: Array.isArray(row.events) ? row.events : [],
+          }))
+
+          setHistory((prev) => {
+            const map = new Map<string, PomodoroSessionRecord>()
+            prev.forEach((p) => map.set(p.id, p))
+            remoteRecords.forEach((r) => map.set(r.id, r))
+            const merged = Array.from(map.values())
+              .sort(
+                (a, b) =>
+                  new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime(),
+              )
+              .slice(0, 50)
+            try {
+              localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(merged))
+            } catch {}
+            return merged
+          })
+        }
+      } catch (err) {
+        console.warn("Could not load remote pomodoro sessions:", err)
+      }
+    }
+
+    void loadRemoteSessions()
   }, [])
 
   // Auto-verify and reconcile today's focus EXP with PostgreSQL on mount
@@ -277,7 +401,10 @@ export function usePomodoro() {
         if (!Array.isArray(parsed)) return
 
         const todaySes = parsed.filter(
-          (h) => !h.id?.startsWith("pomodoro-seed-") && h.completedAt && isSameDay(new Date(h.completedAt), new Date()),
+          (h) =>
+            !h.id?.startsWith("pomodoro-seed-") &&
+            h.completedAt &&
+            isSameDay(new Date(h.completedAt), new Date()),
         )
         const todayExp = todaySes.reduce((acc, s) => acc + (s.expAwarded || 0), 0)
         const todayMins = todaySes.reduce((acc, s) => acc + (s.durationMinutes || 0), 0)
@@ -318,7 +445,6 @@ export function usePomodoro() {
             .eq("user_id", user.id)
           window.dispatchEvent(new CustomEvent("user-progress-changed"))
         } else if ((todayReport.exp_gained || 0) < todayExp) {
-          // If exp_gained is less than focus exp, reconcile the deficit
           const deficit = todayExp - (todayReport.exp_gained || 0)
           const nextExp = (todayReport.exp_gained || 0) + deficit
           const nextHours = Math.max(Number(todayReport.practice_hours || 0), todayHours)
@@ -367,6 +493,13 @@ export function usePomodoro() {
           setDescriptionState(parsed.description)
           setModeState(parsed.mode)
           setStatusState(parsed.status)
+          if (parsed.activeSessionId !== undefined) setActiveSessionId(parsed.activeSessionId)
+          if (parsed.startedAt !== undefined) setStartedAt(parsed.startedAt)
+          if (typeof parsed.pauseCount === "number") setPauseCount(parsed.pauseCount)
+          if (typeof parsed.totalPausedSeconds === "number") setTotalPausedSeconds(parsed.totalPausedSeconds)
+          if (parsed.lastPausedAt !== undefined) setLastPausedAt(parsed.lastPausedAt)
+          if (Array.isArray(parsed.events)) setEvents(parsed.events)
+
           if (parsed.status === "running" && parsed.targetEndTime) {
             setTimeLeft(Math.max(0, Math.ceil((parsed.targetEndTime - Date.now()) / 1000)))
             setTargetEndTime(parsed.targetEndTime)
@@ -396,6 +529,13 @@ export function usePomodoro() {
           setDescriptionState(parsed.description)
           setModeState(parsed.mode)
           setStatusState(parsed.status)
+          if (parsed.activeSessionId !== undefined) setActiveSessionId(parsed.activeSessionId)
+          if (parsed.startedAt !== undefined) setStartedAt(parsed.startedAt)
+          if (typeof parsed.pauseCount === "number") setPauseCount(parsed.pauseCount)
+          if (typeof parsed.totalPausedSeconds === "number") setTotalPausedSeconds(parsed.totalPausedSeconds)
+          if (parsed.lastPausedAt !== undefined) setLastPausedAt(parsed.lastPausedAt)
+          if (Array.isArray(parsed.events)) setEvents(parsed.events)
+
           if (parsed.status === "running" && parsed.targetEndTime) {
             setTimeLeft(Math.max(0, Math.ceil((parsed.targetEndTime - Date.now()) / 1000)))
             setTargetEndTime(parsed.targetEndTime)
@@ -433,6 +573,14 @@ export function usePomodoro() {
         targetEndTime: patch.targetEndTime !== undefined ? patch.targetEndTime : current.targetEndTime,
         pausedTimeLeft: patch.pausedTimeLeft !== undefined ? patch.pausedTimeLeft : current.timeLeft,
         durationMinutes: patch.durationMinutes ?? durationMins,
+        activeSessionId:
+          patch.activeSessionId !== undefined ? patch.activeSessionId : current.activeSessionId,
+        startedAt: patch.startedAt !== undefined ? patch.startedAt : current.startedAt,
+        pauseCount: patch.pauseCount !== undefined ? patch.pauseCount : current.pauseCount,
+        totalPausedSeconds:
+          patch.totalPausedSeconds !== undefined ? patch.totalPausedSeconds : current.totalPausedSeconds,
+        lastPausedAt: patch.lastPausedAt !== undefined ? patch.lastPausedAt : current.lastPausedAt,
+        events: patch.events !== undefined ? patch.events : current.events,
       }
 
       localStorage.setItem(STORAGE_KEY_STATE, JSON.stringify(state))
@@ -444,21 +592,49 @@ export function usePomodoro() {
   // Save completed session to history and Supabase
   const logCompletedSession = useCallback(
     async (completedPreset: PomodoroPreset, mins: number, taskDesc: string) => {
+      const current = stateRef.current
       const exp = calculateExp(mins)
+      const completeTimestamp = new Date().toISOString()
+      const sessionId =
+        current.activeSessionId ||
+        (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `pomo_${Date.now()}`)
+      const actualFocusSecs = Math.max(0, mins * 60 - current.totalPausedSeconds)
+
+      const completeEvent: TimerEvent = {
+        type: "complete",
+        timestamp: completeTimestamp,
+        elapsedSeconds: actualFocusSecs,
+      }
+      const finalEvents = [...current.events, completeEvent]
+
       const record: PomodoroSessionRecord = {
-        id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+        id: sessionId,
         preset: completedPreset,
         durationMinutes: mins,
         description: taskDesc.trim() || "Deep study block",
-        completedAt: new Date().toISOString(),
+        completedAt: completeTimestamp,
         expAwarded: exp,
+        startedAt: current.startedAt || new Date(Date.now() - mins * 60 * 1000).toISOString(),
+        pauseCount: current.pauseCount,
+        totalPausedSeconds: current.totalPausedSeconds,
+        actualFocusSeconds: actualFocusSecs,
+        events: finalEvents,
+        status: "completed",
       }
 
       const updatedHistory = [record, ...history].slice(0, 50)
       setHistory(updatedHistory)
       localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(updatedHistory))
 
-      // Award EXP in user_progress (the single point table) & daily_reports
+      // Clear active tracking states
+      setActiveSessionId(null)
+      setStartedAt(null)
+      setPauseCount(0)
+      setTotalPausedSeconds(0)
+      setLastPausedAt(null)
+      setEvents([])
+
+      // Award EXP in user_progress & daily_reports
       try {
         const supabase = createClient()
         const {
@@ -516,20 +692,36 @@ export function usePomodoro() {
           // 3. Dispatch user-progress-changed event to sync all UI components & hooks
           window.dispatchEvent(new CustomEvent("user-progress-changed"))
 
-          // 4. Try inserting into pomodoro_sessions (graceful if table missing)
+          // 4. Upsert completed session into pomodoro_sessions
           try {
-            await supabase.from("pomodoro_sessions").insert({
+            await supabase.from("pomodoro_sessions").upsert({
+              id: sessionId,
               user_id: user.id,
               preset: completedPreset,
               duration_minutes: mins,
               description: taskDesc.trim(),
+              status: "completed",
               completed: true,
               exp_awarded: exp,
-              started_at: new Date(Date.now() - mins * 60 * 1000).toISOString(),
-              ended_at: new Date().toISOString(),
+              started_at: record.startedAt,
+              ended_at: completeTimestamp,
+              pause_count: current.pauseCount,
+              total_paused_seconds: current.totalPausedSeconds,
+              actual_focus_seconds: actualFocusSecs,
+              events: finalEvents,
             })
-          } catch {
-            // Table might not exist yet before migration
+
+            try {
+              await supabase.from("pomodoro_timer_events").insert({
+                session_id: sessionId,
+                user_id: user.id,
+                event_type: "complete",
+                created_at: completeTimestamp,
+                time_left_seconds: 0,
+              })
+            } catch {}
+          } catch (err) {
+            console.warn("Failed to persist pomodoro session completion in DB:", err)
           }
         }
       } catch (err) {
@@ -589,7 +781,7 @@ export function usePomodoro() {
   }, [status, targetEndTime, logCompletedSession, persistState])
 
   // Timer actions
-  const startTimer = useCallback(() => {
+  const startTimer = useCallback(async () => {
     const current = stateRef.current
     const totalMins =
       current.mode === "break"
@@ -598,48 +790,214 @@ export function usePomodoro() {
 
     const seconds = totalMins * 60
     const end = Date.now() + seconds * 1000
+    const newSessionId =
+      typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `pomo_${Date.now()}`
+    const startTimestamp = new Date().toISOString()
+    const startEvent: TimerEvent = {
+      type: "start",
+      timestamp: startTimestamp,
+      timeLeft: seconds,
+    }
 
     setTimeLeft(seconds)
     setTargetEndTime(end)
     setStatusState("running")
+    setActiveSessionId(newSessionId)
+    setStartedAt(startTimestamp)
+    setPauseCount(0)
+    setTotalPausedSeconds(0)
+    setLastPausedAt(null)
+    setEvents([startEvent])
 
     persistState({
       status: "running",
       targetEndTime: end,
       pausedTimeLeft: seconds,
+      activeSessionId: newSessionId,
+      startedAt: startTimestamp,
+      pauseCount: 0,
+      totalPausedSeconds: 0,
+      lastPausedAt: null,
+      events: [startEvent],
     })
+
+    // Record session start to Supabase in background
+    if (current.mode === "work") {
+      try {
+        const supabase = createClient()
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (user) {
+          await supabase.from("pomodoro_sessions").insert({
+            id: newSessionId,
+            user_id: user.id,
+            preset: current.preset,
+            duration_minutes: totalMins,
+            description: current.description.trim(),
+            status: "running",
+            completed: false,
+            started_at: startTimestamp,
+            pause_count: 0,
+            total_paused_seconds: 0,
+            events: [startEvent],
+          })
+
+          try {
+            await supabase.from("pomodoro_timer_events").insert({
+              session_id: newSessionId,
+              user_id: user.id,
+              event_type: "start",
+              created_at: startTimestamp,
+              time_left_seconds: seconds,
+            })
+          } catch {}
+        }
+      } catch (err) {
+        console.warn("Failed to record timer start in DB:", err)
+      }
+    }
   }, [persistState])
 
-  const resumeTimer = useCallback(() => {
-    const seconds = timeLeft > 0 ? timeLeft : 60
+  const resumeTimer = useCallback(async () => {
+    const current = stateRef.current
+    const seconds = current.timeLeft > 0 ? current.timeLeft : 60
     const end = Date.now() + seconds * 1000
+    const resumeTimestamp = new Date().toISOString()
+    const pauseDuration = current.lastPausedAt
+      ? Math.max(0, Math.round((Date.now() - new Date(current.lastPausedAt).getTime()) / 1000))
+      : 0
+    const nextTotalPaused = current.totalPausedSeconds + pauseDuration
+
+    const resumeEvent: TimerEvent = {
+      type: "resume",
+      timestamp: resumeTimestamp,
+      pauseDurationSeconds: pauseDuration,
+      timeLeft: seconds,
+    }
+    const nextEvents = [...current.events, resumeEvent]
 
     setTargetEndTime(end)
     setStatusState("running")
+    setTotalPausedSeconds(nextTotalPaused)
+    setLastPausedAt(null)
+    setEvents(nextEvents)
 
     persistState({
       status: "running",
       targetEndTime: end,
       pausedTimeLeft: seconds,
+      totalPausedSeconds: nextTotalPaused,
+      lastPausedAt: null,
+      events: nextEvents,
     })
-  }, [timeLeft, persistState])
 
-  const pauseTimer = useCallback(() => {
-    if (status !== "running" || !targetEndTime) return
-    const remaining = Math.max(0, Math.ceil((targetEndTime - Date.now()) / 1000))
+    // Record timer resume to Supabase in background
+    if (current.activeSessionId && current.mode === "work") {
+      try {
+        const supabase = createClient()
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (user) {
+          await supabase
+            .from("pomodoro_sessions")
+            .update({
+              status: "running",
+              total_paused_seconds: nextTotalPaused,
+              last_resumed_at: resumeTimestamp,
+              events: nextEvents,
+            })
+            .eq("id", current.activeSessionId)
+
+          try {
+            await supabase.from("pomodoro_timer_events").insert({
+              session_id: current.activeSessionId,
+              user_id: user.id,
+              event_type: "resume",
+              created_at: resumeTimestamp,
+              time_left_seconds: seconds,
+              pause_duration_seconds: pauseDuration,
+            })
+          } catch {}
+        }
+      } catch (err) {
+        console.warn("Failed to record timer resume in DB:", err)
+      }
+    }
+  }, [persistState])
+
+  const pauseTimer = useCallback(async () => {
+    const current = stateRef.current
+    if (current.status !== "running" || !current.targetEndTime) return
+    const remaining = Math.max(0, Math.ceil((current.targetEndTime - Date.now()) / 1000))
+    const pauseTimestamp = new Date().toISOString()
+    const nextPauseCount = current.pauseCount + 1
+    const totalDurationSecs =
+      (current.mode === "break"
+        ? getBreakMinutes(getPresetMinutes(current.preset, current.customMinutes))
+        : getPresetMinutes(current.preset, current.customMinutes)) * 60
+    const elapsedSeconds = Math.max(0, totalDurationSecs - remaining)
+
+    const pauseEvent: TimerEvent = {
+      type: "pause",
+      timestamp: pauseTimestamp,
+      timeLeft: remaining,
+      elapsedSeconds,
+    }
+    const nextEvents = [...current.events, pauseEvent]
 
     setTargetEndTime(null)
     setTimeLeft(remaining)
     setStatusState("paused")
+    setPauseCount(nextPauseCount)
+    setLastPausedAt(pauseTimestamp)
+    setEvents(nextEvents)
 
     persistState({
       status: "paused",
       targetEndTime: null,
       pausedTimeLeft: remaining,
+      pauseCount: nextPauseCount,
+      lastPausedAt: pauseTimestamp,
+      events: nextEvents,
     })
-  }, [status, targetEndTime, persistState])
 
-  const resetTimer = useCallback(() => {
+    // Record pause to Supabase in background
+    if (current.activeSessionId && current.mode === "work") {
+      try {
+        const supabase = createClient()
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (user) {
+          await supabase
+            .from("pomodoro_sessions")
+            .update({
+              status: "paused",
+              pause_count: nextPauseCount,
+              last_paused_at: pauseTimestamp,
+              events: nextEvents,
+            })
+            .eq("id", current.activeSessionId)
+
+          try {
+            await supabase.from("pomodoro_timer_events").insert({
+              session_id: current.activeSessionId,
+              user_id: user.id,
+              event_type: "pause",
+              created_at: pauseTimestamp,
+              time_left_seconds: remaining,
+            })
+          } catch {}
+        }
+      } catch (err) {
+        console.warn("Failed to record timer pause in DB:", err)
+      }
+    }
+  }, [persistState])
+
+  const resetTimer = useCallback(async () => {
     const current = stateRef.current
     const totalMins =
       current.mode === "break"
@@ -647,14 +1005,73 @@ export function usePomodoro() {
         : getPresetMinutes(current.preset, current.customMinutes)
 
     const seconds = totalMins * 60
+    const elapsedSeconds = seconds - current.timeLeft
+
+    // If session had started and was active/paused for >= 15s, record abandon in DB
+    if (
+      current.activeSessionId &&
+      (current.status === "running" || current.status === "paused") &&
+      elapsedSeconds >= 15 &&
+      current.mode === "work"
+    ) {
+      const abandonTimestamp = new Date().toISOString()
+      const abandonEvent: TimerEvent = {
+        type: "abandon",
+        timestamp: abandonTimestamp,
+        elapsedSeconds,
+      }
+      const finalEvents = [...current.events, abandonEvent]
+
+      try {
+        const supabase = createClient()
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (user) {
+          await supabase
+            .from("pomodoro_sessions")
+            .update({
+              status: "abandoned",
+              ended_at: abandonTimestamp,
+              events: finalEvents,
+            })
+            .eq("id", current.activeSessionId)
+
+          try {
+            await supabase.from("pomodoro_timer_events").insert({
+              session_id: current.activeSessionId,
+              user_id: user.id,
+              event_type: "abandon",
+              created_at: abandonTimestamp,
+              time_left_seconds: current.timeLeft,
+            })
+          } catch {}
+        }
+      } catch (err) {
+        console.warn("Failed to mark session abandoned in DB:", err)
+      }
+    }
+
     setTimeLeft(seconds)
     setTargetEndTime(null)
     setStatusState("idle")
+    setActiveSessionId(null)
+    setStartedAt(null)
+    setPauseCount(0)
+    setTotalPausedSeconds(0)
+    setLastPausedAt(null)
+    setEvents([])
 
     persistState({
       status: "idle",
       targetEndTime: null,
       pausedTimeLeft: seconds,
+      activeSessionId: null,
+      startedAt: null,
+      pauseCount: 0,
+      totalPausedSeconds: 0,
+      lastPausedAt: null,
+      events: [],
     })
   }, [persistState])
 
@@ -761,8 +1178,18 @@ export function usePomodoro() {
   const todayFocusMinutes = todaySessions.reduce((acc, s) => acc + s.durationMinutes, 0)
   const todayExpEarned = todaySessions.reduce((acc, s) => acc + s.expAwarded, 0)
 
-  // Package active Pomodoro context for AI Mentor
+  // Package active Pomodoro context & telemetry for AI Mentor
   const getActiveContextForAI = useCallback(() => {
+    const current = stateRef.current
+    const studyPattern = analyzeStudyPatterns(history, {
+      status: current.status,
+      startedAt: current.startedAt,
+      pauseCount: current.pauseCount,
+      totalPausedSeconds: current.totalPausedSeconds,
+      lastPausedAt: current.lastPausedAt,
+      events: current.events,
+    })
+
     return {
       preset:
         preset === "25"
@@ -776,14 +1203,33 @@ export function usePomodoro() {
       description: description.trim(),
       status,
       timeLeftSeconds: timeLeft,
+      activeSessionId: current.activeSessionId,
+      startedAt: current.startedAt,
+      pauseCount: current.pauseCount,
+      totalPausedSeconds: current.totalPausedSeconds,
+      lastPausedAt: current.lastPausedAt,
+      events: current.events,
+      studyPattern,
       completedTodayCount: todaySessions.length,
-      recentSessions: todaySessions.slice(0, 3).map((s) => ({
+      recentSessions: todaySessions.slice(0, 5).map((s) => ({
         description: s.description,
         durationMinutes: s.durationMinutes,
         completedAt: s.completedAt,
+        startedAt: s.startedAt,
+        pauseCount: s.pauseCount ?? 0,
+        totalPausedSeconds: s.totalPausedSeconds ?? 0,
       })),
     }
-  }, [preset, customMinutes, activeDurationMinutes, description, status, timeLeft, todaySessions])
+  }, [
+    preset,
+    customMinutes,
+    activeDurationMinutes,
+    description,
+    status,
+    timeLeft,
+    todaySessions,
+    history,
+  ])
 
   return {
     preset,
@@ -798,6 +1244,12 @@ export function usePomodoro() {
     todaySessions,
     todayFocusMinutes,
     todayExpEarned,
+    activeSessionId,
+    startedAt,
+    pauseCount,
+    totalPausedSeconds,
+    lastPausedAt,
+    events,
     startTimer,
     resumeTimer,
     pauseTimer,

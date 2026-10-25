@@ -32,6 +32,7 @@ import {
   Trash2,
   Clock,
   MessageSquare,
+  Pause,
 } from "lucide-react"
 import {
   Dialog,
@@ -87,6 +88,13 @@ const promptStarters = [
     desc: "Synthesize high-yield focus areas for today's study block.",
     prompt:
       "What should I prioritize today? Formulate an actionable plan based on my overdue topics and recent pace.",
+  },
+  {
+    icon: Pause,
+    title: "Study pattern & pause audit",
+    desc: "Evaluate your focus timer habits, pause frequency, and start timings.",
+    prompt:
+      "Can you analyze my study pattern from my timer data? Am I taking too many pauses, at which timings am I starting, and when do I tend to pause?",
   },
 ]
 
