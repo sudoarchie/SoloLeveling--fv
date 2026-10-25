@@ -107,6 +107,7 @@ import {
   type RankInfo,
 } from "@/lib/ranks"
 import RankUpgradeModal from "@/components/RankUpgradeModal"
+import { ProgressAnalytics } from "@/components/ProgressAnalytics"
 
 const ranks: RankInfo[] = RANKS
 const themes = [
@@ -1073,209 +1074,17 @@ export default function GATETracker() {
           </TabsContent>
 
           <TabsContent value="progress" className="mt-0 space-y-6">
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-              <MockTestInput soundEnabled={soundEnabled} />
-              <StreakTracker streak={streak} />
-            </div>
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Your preparation, at a glance</CardTitle>
-                  <CardDescription>This week’s effort adds up.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
-                    {[
-                      { label: "Lectures", value: weeklyStats.totalLectures },
-                      {
-                        label: "Topics revised",
-                        value: weeklyStats.totalTopics,
-                      },
-                      {
-                        label: "Practice hours",
-                        value: weeklyStats.totalPractice,
-                      },
-                      {
-                        label: "EXP earned",
-                        value: weeklyStats.totalExp.toLocaleString(),
-                      },
-                    ].map((stat) => (
-                      <div key={stat.label}>
-                        <p className="text-2xl font-semibold tabular-nums">
-                          {stat.value}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {stat.label}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t pt-5">
-                    <div className="flex items-center gap-3">
-                      <span className="rounded-lg bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">
-                        {currentRank.name}-Rank
-                      </span>
-                      <div>
-                        <p className="text-sm font-semibold">
-                          {currentRank.title} · {currentExp.toLocaleString()} EXP
-                        </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          Weekly Study: <span className="font-medium text-foreground">{weeklyStudyStats.effectiveWeeklyHours.toFixed(1)} hrs</span>
-                          {" "}(avg {weeklyStudyStats.dailyAvgHours}h/day)
-                          {nextRank && (
-                            <>
-                              {" · "}
-                              {rankProgress.isTimeGated ? (
-                                <span className="text-amber-500 font-medium">
-                                  ⏳ Need {rankProgress.hoursNeeded} more study hours this week for {nextRank.name}-Rank
-                                </span>
-                              ) : rankProgress.isExpGated ? (
-                                <span className="text-primary font-medium">
-                                  ⚡ Need {rankProgress.expNeeded.toLocaleString()} EXP for {nextRank.name}-Rank
-                                </span>
-                              ) : (
-                                <span>
-                                  Need {rankProgress.expNeeded.toLocaleString()} EXP & {nextRank.minWeeklyHours}h/wk study for {nextRank.name}-Rank
-                                </span>
-                              )}
-                            </>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                    {nextRank && (
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs font-mono">
-                          Next: {nextRank.name}-Rank ({nextRank.minWeeklyHours}h/wk min)
-                        </Badge>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-            {dailyReports.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <BarChart3 className="mx-auto mb-4 h-8 w-8 text-muted-foreground" />
-                  <h2 className="font-medium">
-                    Your progress starts with one day
-                  </h2>
-                  <p className="mb-5 mt-2 text-sm text-muted-foreground">
-                    Save your first study log to see your activity here.
-                  </p>
-                  <Button onClick={() => changeView("today")}>
-                    Log your day
-                    <ArrowRight />
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <>
-                <div className="grid gap-6 xl:grid-cols-2">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Daily activity</CardTitle>
-                      <CardDescription>
-                        Lectures and topics · last 7 days
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <ChartContainer
-                        config={chartConfig}
-                        className="h-[240px] w-full"
-                      >
-                        <BarChart
-                          accessibilityLayer
-                          data={getChartData(7)}
-                          margin={{ left: -20, right: 8 }}
-                        >
-                          <CartesianGrid
-                            vertical={false}
-                            strokeDasharray="3 3"
-                          />
-                          <XAxis
-                            dataKey="date"
-                            axisLine={false}
-                            tickLine={false}
-                            tickMargin={10}
-                          />
-                          <YAxis
-                            axisLine={false}
-                            tickLine={false}
-                            allowDecimals={false}
-                          />
-                          <ChartTooltip content={<ChartTooltipContent />} />
-                          <Bar
-                            dataKey="lectures"
-                            fill="var(--color-lectures)"
-                            radius={[4, 4, 0, 0]}
-                          />
-                          <Bar
-                            dataKey="topics"
-                            fill="var(--color-topics)"
-                            radius={[4, 4, 0, 0]}
-                          />
-                        </BarChart>
-                      </ChartContainer>
-                      <div className="mt-3 flex justify-center gap-5 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-sm bg-[hsl(var(--chart-1))]" />
-                          Lectures
-                        </span>
-                        <span className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-sm bg-[hsl(var(--chart-2))]" />
-                          Topics
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Experience over time</CardTitle>
-                      <CardDescription>
-                        Daily EXP · last 14 days
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <ChartContainer
-                        config={chartConfig}
-                        className="h-[240px] w-full"
-                      >
-                        <RechartsLineChart
-                          accessibilityLayer
-                          data={getChartData(14)}
-                          margin={{ left: -12, right: 8 }}
-                        >
-                          <CartesianGrid
-                            vertical={false}
-                            strokeDasharray="3 3"
-                          />
-                          <XAxis
-                            dataKey="date"
-                            axisLine={false}
-                            tickLine={false}
-                            minTickGap={28}
-                            tickMargin={10}
-                          />
-                          <YAxis axisLine={false} tickLine={false} />
-                          <ChartTooltip content={<ChartTooltipContent />} />
-                          <Line
-                            type="monotone"
-                            dataKey="exp"
-                            stroke="var(--color-exp)"
-                            strokeWidth={2}
-                            dot={false}
-                            activeDot={{ r: 4 }}
-                          />
-                        </RechartsLineChart>
-                      </ChartContainer>
-                    </CardContent>
-                  </Card>
-                </div>
-                <ActivityHeatmap dailyReports={dailyReports} weeks={5} />
-              </>
-            )}
+            <ProgressAnalytics
+              dailyReports={dailyReports}
+              currentExp={currentExp}
+              streak={streak}
+              currentRank={currentRank}
+              nextRank={nextRank}
+              weeklyStudyStats={weeklyStudyStats}
+              rankProgress={rankProgress}
+              soundEnabled={soundEnabled}
+              onNavigateTab={changeView}
+            />
           </TabsContent>
           <p className="mt-9 text-center text-xs text-muted-foreground/80">
             Show up. Stay curious. Keep going.

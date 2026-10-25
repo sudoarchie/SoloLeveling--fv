@@ -698,7 +698,7 @@ export function MockTestInput({ soundEnabled }: { soundEnabled: boolean }) {
                       </div>
                       <div className="flex items-center gap-2 text-[10px] text-muted-foreground flex-wrap">
                         <span>{attempt.scorePct.toFixed(1)}% score</span>
-                        {attempt.accuracyPct !== null && (
+                        {attempt.accuracyPct != null && (
                           <span className="text-cyan-400 font-mono">
                             · {attempt.accuracyPct.toFixed(0)}% acc
                           </span>
