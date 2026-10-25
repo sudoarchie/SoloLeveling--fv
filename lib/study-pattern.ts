@@ -13,9 +13,63 @@ export interface TimerEvent {
   note?: string
 }
 
+export type FocusType = "lecture" | "practice" | "revision" | "mock_test" | "other"
+
+export function normalizeFocusType(
+  type?: string | null,
+  description?: string | null,
+): FocusType {
+  if (type) {
+    const t = type.toLowerCase().trim()
+    if (t === "lecture" || t === "lectures") return "lecture"
+    if (t === "practice" || t === "practics" || t === "practicing") return "practice"
+    if (t === "revision" || t === "revise" || t === "review") return "revision"
+    if (t === "mock_test" || t === "mock" || t === "exam" || t === "test") return "mock_test"
+    if (t === "other") return "other"
+  }
+  if (description) {
+    const d = description.toLowerCase()
+    if (
+      d.includes("lecture") ||
+      d.includes("video") ||
+      d.includes("class") ||
+      d.includes("watch") ||
+      d.includes("cn lecture")
+    )
+      return "lecture"
+    if (
+      d.includes("revision") ||
+      d.includes("recall") ||
+      d.includes("formula") ||
+      d.includes("notes") ||
+      d.includes("summary")
+    )
+      return "revision"
+    if (
+      d.includes("mock") ||
+      d.includes("exam") ||
+      d.includes("test paper") ||
+      d.includes("gate 201")
+    )
+      return "mock_test"
+    if (
+      d.includes("practice") ||
+      d.includes("pyq") ||
+      d.includes("question") ||
+      d.includes("solve") ||
+      d.includes("problem") ||
+      d.includes("mcq")
+    )
+      return "practice"
+  }
+  return "practice"
+}
+
 export interface PomodoroSessionData {
   id?: string
   preset?: string
+  focusType?: FocusType
+  focus_type?: string
   duration_minutes?: number
   durationMinutes?: number
   description?: string
@@ -85,10 +139,12 @@ function normalizeSession(s: PomodoroSessionData) {
   const totalPausedSeconds = s.total_paused_seconds ?? s.totalPausedSeconds ?? 0
   const durationMinutes = s.duration_minutes ?? s.durationMinutes ?? 25
   const events = Array.isArray(s.events) ? s.events : []
+  const focusType = normalizeFocusType(s.focusType || s.focus_type, s.description)
 
   return {
     id: s.id,
     preset: s.preset || "25",
+    focusType,
     durationMinutes,
     description: s.description || "",
     status: s.status || (s.completed ? "completed" : "active"),

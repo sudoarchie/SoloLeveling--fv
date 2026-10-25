@@ -19,7 +19,9 @@ import {
   Layers,
   ArrowRight,
   BookOpen,
-  PieChart as PieChartIcon,
+  PenLine,
+  RotateCcw,
+  SlidersHorizontal,
   Timer,
   ChevronDown,
   ChevronUp,
@@ -57,9 +59,9 @@ import {
 import type { DailyReport } from "@/hooks/useUserData"
 import type { StreakData } from "@/hooks/useDailyQuests"
 import { useMockTests } from "@/hooks/useMockTests"
-import { usePomodoro } from "@/hooks/usePomodoro"
+import { usePomodoro, type FocusType } from "@/hooks/usePomodoro"
 import { useSpacedRepetition } from "@/hooks/useSpacedRepetition"
-import { analyzeStudyPatterns } from "@/lib/study-pattern"
+import { analyzeStudyPatterns, normalizeFocusType } from "@/lib/study-pattern"
 import type { RankInfo, WeeklyStudyStats, RankProgressDetails } from "@/lib/ranks"
 import { ActivityHeatmap } from "@/components/ActivityHeatmap"
 import { MockTestInput } from "@/components/MockTestInput"
@@ -97,6 +99,13 @@ const studyChartConfig: ChartConfig = {
   exp: {
     label: "Daily EXP",
     color: "hsl(var(--chart-4))",
+  },
+}
+
+const activityChartConfig: ChartConfig = {
+  hours: {
+    label: "Hours Invested",
+    color: "hsl(var(--primary))",
   },
 }
 
@@ -197,7 +206,186 @@ export function ProgressAnalytics({
     }
   }, [studyTimeline, timeframe])
 
-  // 2. Study pattern intelligence (Pomodoro telemetry & stamina)
+  // 2. Comprehensive breakdown: Quantity & Hours Invested by Focus Category
+  const activityInvestment = useMemo(() => {
+    const windowStart = subDays(new Date(), timeframe)
+    const windowEnd = new Date()
+
+    // Filter Pomodoro sessions within this timeframe
+    const filteredSessions = pomodoroHistory.filter((s) => {
+      const d = s.completedAt || s.startedAt
+      if (!d) return false
+      const sessionDate = new Date(d)
+      return sessionDate >= windowStart && sessionDate <= windowEnd
+    })
+
+    // Filter daily reports within this timeframe
+    const filteredReports = dailyReports.filter((r) => {
+      const d = new Date(r.date)
+      return d >= windowStart && d <= windowEnd
+    })
+
+    // Filter mock attempts within this timeframe
+    const filteredAttempts = attempts.filter((a) => {
+      const d = new Date(a.attemptedAt)
+      return d >= windowStart && d <= windowEnd
+    })
+
+    const totalLecturesFromReports = filteredReports.reduce((sum, r) => sum + (r.lecturesCompleted || 0), 0)
+    const totalTopicsFromReports = filteredReports.reduce((sum, r) => sum + (r.topicsRevised || 0), 0)
+    const totalMockAttempts = filteredAttempts.length
+
+    let lectureMinutes = 0
+    let lectureBlocks = 0
+
+    let practiceMinutes = 0
+    let practiceBlocks = 0
+
+    let revisionMinutes = 0
+    let revisionBlocks = 0
+
+    let mockMinutes = 0
+    let mockBlocks = 0
+
+    let otherMinutes = 0
+    let otherBlocks = 0
+
+    filteredSessions.forEach((s) => {
+      const mins = s.durationMinutes || 25
+      const fType = s.focusType || normalizeFocusType(null, s.description)
+
+      switch (fType) {
+        case "lecture":
+          lectureMinutes += mins
+          lectureBlocks++
+          break
+        case "practice":
+          practiceMinutes += mins
+          practiceBlocks++
+          break
+        case "revision":
+          revisionMinutes += mins
+          revisionBlocks++
+          break
+        case "mock_test":
+          mockMinutes += mins
+          mockBlocks++
+          break
+        case "other":
+          otherMinutes += mins
+          otherBlocks++
+          break
+      }
+    })
+
+    // Add mock test duration from exam attempts
+    filteredAttempts.forEach((a) => {
+      mockMinutes += a.timeSpentMinutes || (a.examType === "full_paper" ? 180 : 60)
+    })
+
+    // Reconcile with daily report quantities
+    const estimatedLectureHours = Number((totalLecturesFromReports * 0.75).toFixed(1))
+    const finalLectureHours = Number(Math.max(lectureMinutes / 60, estimatedLectureHours).toFixed(1))
+
+    const estimatedRevisionHours = Number((totalTopicsFromReports * 0.4).toFixed(1))
+    const finalRevisionHours = Number(Math.max(revisionMinutes / 60, estimatedRevisionHours).toFixed(1))
+
+    const finalMockHours = Number((mockMinutes / 60).toFixed(1))
+    const finalOtherHours = Number((otherMinutes / 60).toFixed(1))
+
+    const totalReportedPracticeHours = filteredReports.reduce((sum, r) => sum + (r.practiceHours || 0), 0)
+    const calculatedPracticeHours = Math.max(
+      practiceMinutes / 60,
+      totalReportedPracticeHours - (finalLectureHours + finalRevisionHours + finalMockHours + finalOtherHours),
+    )
+    const finalPracticeHours = Number(Math.max(0, calculatedPracticeHours).toFixed(1))
+
+    const totalCalculatedHours =
+      Number(
+        (finalLectureHours + finalPracticeHours + finalRevisionHours + finalMockHours + finalOtherHours).toFixed(1),
+      ) || 0.1
+
+    const categories = [
+      {
+        id: "lecture",
+        label: "Lectures",
+        hours: finalLectureHours,
+        quantityNumber: totalLecturesFromReports || lectureBlocks,
+        quantityLabel: `${totalLecturesFromReports} lectures completed`,
+        sessionsCount: lectureBlocks,
+        color: "#3B82F6",
+        badgeColor: "bg-blue-500/10 text-blue-500 border-blue-500/20",
+        pct: Math.min(100, Math.round((finalLectureHours / totalCalculatedHours) * 100)),
+        icon: BookOpen,
+        desc: "Theory videos, class concepts & lecture ingestion",
+      },
+      {
+        id: "practice",
+        label: "Practice & PYQs",
+        hours: finalPracticeHours,
+        quantityNumber: practiceBlocks || Math.round(finalPracticeHours * 8),
+        quantityLabel: `${practiceBlocks || Math.round(finalPracticeHours * 8)} problem blocks`,
+        sessionsCount: practiceBlocks,
+        color: "#10B981",
+        badgeColor: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+        pct: Math.min(100, Math.round((finalPracticeHours / totalCalculatedHours) * 100)),
+        icon: PenLine,
+        desc: "Active retrieval practice, PYQ solving & numericals",
+      },
+      {
+        id: "revision",
+        label: "Revision",
+        hours: finalRevisionHours,
+        quantityNumber: totalTopicsFromReports || revisionBlocks,
+        quantityLabel: `${totalTopicsFromReports} topics revised`,
+        sessionsCount: revisionBlocks,
+        color: "#8B5CF6",
+        badgeColor: "bg-purple-500/10 text-purple-500 border-purple-500/20",
+        pct: Math.min(100, Math.round((finalRevisionHours / totalCalculatedHours) * 100)),
+        icon: RotateCcw,
+        desc: "Spaced repetition curve reviews & formula recall",
+      },
+      {
+        id: "mock_test",
+        label: "Mock Tests",
+        hours: finalMockHours,
+        quantityNumber: totalMockAttempts,
+        quantityLabel: `${totalMockAttempts} exams attempted`,
+        sessionsCount: mockBlocks + totalMockAttempts,
+        color: "#F59E0B",
+        badgeColor: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+        pct: Math.min(100, Math.round((finalMockHours / totalCalculatedHours) * 100)),
+        icon: Trophy,
+        desc: "Timed full exam simulations & subject test papers",
+      },
+      {
+        id: "other",
+        label: "Other Focus",
+        hours: finalOtherHours,
+        quantityNumber: otherBlocks,
+        quantityLabel: `${otherBlocks} focus blocks`,
+        sessionsCount: otherBlocks,
+        color: "#64748B",
+        badgeColor: "bg-slate-500/10 text-slate-400 border-slate-500/20",
+        pct: Math.min(100, Math.round((finalOtherHours / totalCalculatedHours) * 100)),
+        icon: SlidersHorizontal,
+        desc: "Syllabus mapping, mistake notebook & strategy planning",
+      },
+    ]
+
+    return {
+      categories,
+      totalHours: totalCalculatedHours,
+      chartData: categories.map((c) => ({
+        name: c.label,
+        hours: c.hours,
+        fill: c.color,
+        quantity: c.quantityLabel,
+      })),
+    }
+  }, [timeframe, pomodoroHistory, dailyReports, attempts])
+
+  // 3. Study pattern intelligence (Pomodoro telemetry & stamina)
   const patternAnalysis = useMemo(() => {
     return analyzeStudyPatterns(pomodoroHistory)
   }, [pomodoroHistory])
@@ -213,7 +401,7 @@ export function ProgressAnalytics({
     ]
   }, [patternAnalysis])
 
-  // 3. Mock test analytics
+  // 4. Mock test analytics
   const mockStats = useMemo(() => {
     if (!attempts || attempts.length === 0) {
       return {
@@ -273,7 +461,7 @@ export function ProgressAnalytics({
     }
   }, [attempts])
 
-  // 4. Spaced repetition retention stages
+  // 5. Spaced repetition retention stages
   const retentionStats = useMemo(() => {
     const allTopics = spacedRepetition.topics || []
     const total = allTopics.length
@@ -536,6 +724,106 @@ export function ProgressAnalytics({
       {/* ── TAB 1: Study Velocity & Effort Breakdown ─────────────────────── */}
       {subTab === "overview" && (
         <div className="space-y-6">
+          {/* ── NEW: Hours & Quantity Invested by Focus Category (Lecture, Practice, Revision, Mock, Other) ── */}
+          <Card className="border-border bg-card">
+            <CardHeader className="pb-3 border-b bg-card/40">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <PieChartIcon className="h-4 w-4 text-primary" />
+                    Hours & Quantity Invested by Focus Activity
+                  </CardTitle>
+                  <CardDescription>
+                    Breakdown of study time and quantities achieved across your prep domains · Last {timeframe} days
+                  </CardDescription>
+                </div>
+                <Badge variant="outline" className="font-mono text-xs self-start sm:self-auto">
+                  {activityInvestment.totalHours} hrs total logged
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-5 space-y-5">
+              {/* Category metric cards with quantities and hours invested */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                {activityInvestment.categories.map((cat) => {
+                  const Icon = cat.icon
+                  return (
+                    <div
+                      key={cat.id}
+                      className="rounded-xl border p-3.5 bg-background space-y-2.5 hover:border-border transition-all"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                          <Icon className="h-3.5 w-3.5" style={{ color: cat.color }} />
+                          {cat.label}
+                        </span>
+                        <Badge variant="outline" className={`text-[10px] font-mono px-1.5 py-0 ${cat.badgeColor}`}>
+                          {cat.pct}%
+                        </Badge>
+                      </div>
+
+                      <div>
+                        <p className="text-2xl font-bold font-mono tracking-tight text-foreground">
+                          {cat.hours}
+                          <span className="text-xs font-normal text-muted-foreground ml-1">hrs</span>
+                        </p>
+                        <p className="text-xs font-medium text-foreground/80 mt-0.5 flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: cat.color }} />
+                          {cat.quantityLabel}
+                        </p>
+                      </div>
+
+                      <Progress
+                        value={cat.pct}
+                        className="h-1.5"
+                        style={{
+                          // @ts-ignore
+                          "--progress-background": cat.color,
+                        }}
+                      />
+
+                      <p className="text-[10px] text-muted-foreground line-clamp-2">
+                        {cat.desc}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Comparative Activity Investment Bar Chart */}
+              <div className="rounded-xl border bg-muted/20 p-4">
+                <div className="flex items-center justify-between mb-3 text-xs">
+                  <span className="font-semibold text-foreground">Activity Hours Comparison</span>
+                  <span className="text-muted-foreground">Distribution across focus domains</span>
+                </div>
+                <ChartContainer config={activityChartConfig} className="h-[140px] w-full">
+                  <BarChart
+                    data={activityInvestment.chartData}
+                    layout="vertical"
+                    margin={{ left: 20, right: 20, top: 5, bottom: 5 }}
+                  >
+                    <CartesianGrid horizontal={false} strokeDasharray="3 3" />
+                    <XAxis type="number" axisLine={false} tickLine={false} unit="h" fontSize={11} />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      axisLine={false}
+                      tickLine={false}
+                      fontSize={11}
+                      width={100}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="hours" radius={[0, 4, 4, 0]}>
+                      {activityInvestment.chartData.map((entry, idx) => (
+                        <Cell key={`act-cell-${idx}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ChartContainer>
+              </div>
+            </CardContent>
+          </Card>
+
           <div className="grid gap-6 xl:grid-cols-3">
             {/* Main Daily Practice Hours & Rank Target Chart */}
             <Card className="xl:col-span-2">

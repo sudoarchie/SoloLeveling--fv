@@ -26,8 +26,18 @@ import {
   ChevronRight,
   SlidersHorizontal,
   History,
+  BookOpen,
+  PenLine,
+  FileQuestion,
 } from "lucide-react"
-import { usePomodoro, type PomodoroPreset } from "@/hooks/usePomodoro"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { usePomodoro, type PomodoroPreset, type FocusType } from "@/hooks/usePomodoro"
 import { useSpacedRepetition } from "@/hooks/useSpacedRepetition"
 import { useUserData } from "@/hooks/useUserData"
 
@@ -88,6 +98,7 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
     preset,
     customMinutes,
     description,
+    focusType,
     mode,
     status,
     timeLeft,
@@ -106,6 +117,7 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
     finishEarly,
     setPreset,
     setDescription,
+    setFocusType,
     setBreakMode,
   } = usePomodoro()
 
@@ -115,15 +127,44 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
   const { progress } = useUserData()
   const currentExp = progress.currentExp
 
-  // Suggestions from due topics or active prep topics
+  // Suggestions customized for each focus type
   const dueTopicNames = spacedRepetition.dueTopics.map((t) => t.name).slice(0, 4)
-  const defaultSuggestions = [
-    "Solving 20 GATE PYQs on Graph Theory & Dijkstra",
-    "DBMS Normalization & Functional Dependencies",
-    "Operating Systems Virtual Memory & Paging",
-    "Full-length Mock Exam Closed Book Simulation",
-  ]
-  const quickTopics = dueTopicNames.length > 0 ? dueTopicNames : defaultSuggestions
+  const focusTypeSuggestions: Record<FocusType, string[]> = {
+    lecture: [
+      "Computer Networks Layer Architecture & TCP/IP Video",
+      "OS Virtual Memory & Multi-level Paging Lecture",
+      "Compiler Design LL(1) & LR Parsing Class",
+      "Algorithms Asymptotic Notation & Recurrences",
+    ],
+    practice: [
+      "Solving 20 GATE PYQs on Graph Theory & Dijkstra",
+      "Operating Systems Deadlocks & Semaphores MCQs",
+      "DBMS SQL Queries & Relational Algebra Practice",
+      "Digital Logic K-Maps & Combinational Circuits",
+    ],
+    revision:
+      dueTopicNames.length > 0
+        ? dueTopicNames
+        : [
+            "DBMS Normalization 1NF to BCNF Formula Recall",
+            "OS CPU Scheduling Formulas & Turnaround Time",
+            "Cache Memory Direct & Set Associative Mapping",
+            "Computer Architecture Pipelining Hazards Formula",
+          ],
+    mock_test: [
+      "GATE CS Full Paper Test 1 (Closed Book Simulation)",
+      "Made Easy Subject Test - Operating Systems (50M)",
+      "Testbook Subject Test - Computer Networks",
+      "Topic-wise Timed Quiz - Data Structures",
+    ],
+    other: [
+      "GATE 2026 Syllabus Weightage & Gap Analysis",
+      "Weakness Diagnosis & Mistake Notebook Review",
+      "Weekly Schedule & Strategy Calibration",
+    ],
+  }
+
+  const quickTopics = focusTypeSuggestions[focusType] || focusTypeSuggestions.practice
 
   const handleCustomApply = () => {
     const val = parseInt(customInput, 10)
@@ -283,15 +324,12 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
             )}
           </div>
 
-          {/* Task Description Input — communicated directly to AI Mentor */}
-          <div className="space-y-2 rounded-xl border border-border/80 bg-background/50 p-4">
+          {/* Task Focus & Description Input — communicated directly to AI Mentor */}
+          <div className="space-y-3 rounded-xl border border-border/80 bg-background/50 p-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-              <label
-                htmlFor="pomodoro-task-desc"
-                className="text-xs font-semibold uppercase tracking-wider text-foreground flex items-center gap-1.5"
-              >
+              <label className="text-xs font-semibold uppercase tracking-wider text-foreground flex items-center gap-1.5">
                 <Brain className="h-3.5 w-3.5 text-primary" />
-                What are you working on right now?
+                Session Focus & Description
               </label>
               <span className="text-[11px] text-primary flex items-center gap-1">
                 <Sparkles className="h-3 w-3" />
@@ -299,23 +337,81 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
               </span>
             </div>
 
-            <Input
-              id="pomodoro-task-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g., Solving 25 GATE pyqs on Graph Theory & Dijkstra's Algorithm..."
-              className="text-sm bg-background border-border/80 focus-visible:ring-primary/30"
-            />
+            <div className="grid grid-cols-1 sm:grid-cols-[175px_minmax(0,1fr)] gap-2.5">
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-muted-foreground">Focus Activity</label>
+                <Select value={focusType} onValueChange={(val: FocusType) => setFocusType(val)}>
+                  <SelectTrigger className="h-10 text-xs bg-background">
+                    <SelectValue placeholder="Select Focus" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="lecture">
+                      <div className="flex items-center gap-2">
+                        <BookOpen className="h-3.5 w-3.5 text-blue-500" />
+                        <span>Lecture</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="practice">
+                      <div className="flex items-center gap-2">
+                        <PenLine className="h-3.5 w-3.5 text-emerald-500" />
+                        <span>Practice</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="revision">
+                      <div className="flex items-center gap-2">
+                        <RotateCcw className="h-3.5 w-3.5 text-purple-500" />
+                        <span>Revision</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="mock_test">
+                      <div className="flex items-center gap-2">
+                        <FileQuestion className="h-3.5 w-3.5 text-amber-500" />
+                        <span>Mock Test</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="other">
+                      <div className="flex items-center gap-2">
+                        <SlidersHorizontal className="h-3.5 w-3.5 text-zinc-400" />
+                        <span>Other</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="pomodoro-task-desc" className="text-[11px] font-medium text-muted-foreground">
+                  Task / Topic Description
+                </label>
+                <Input
+                  id="pomodoro-task-desc"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={
+                    focusType === "lecture"
+                      ? "e.g., Computer Networks Lecture 6 - TCP Flow & Congestion Control..."
+                      : focusType === "practice"
+                        ? "e.g., Solving 25 GATE PYQs on Graph Theory & Dijkstra's Algorithm..."
+                        : focusType === "revision"
+                          ? "e.g., Revision of DBMS Normalization 1NF to BCNF notes..."
+                          : focusType === "mock_test"
+                            ? "e.g., GATE CS Full Mock Exam 1 (Closed Book Simulation)..."
+                            : "e.g., Syllabus analysis and planning..."
+                  }
+                  className="h-10 text-sm bg-background border-border/80 focus-visible:ring-primary/30"
+                />
+              </div>
+            </div>
 
             {/* Topic Suggestion Chips */}
-            <div className="pt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+            <div className="pt-1 flex flex-wrap items-center gap-1.5 text-xs">
               <span className="text-[11px] text-muted-foreground mr-1">Quick fill:</span>
               {quickTopics.map((item) => (
                 <button
                   key={item}
                   type="button"
                   onClick={() => setDescription(item)}
-                  className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground hover:border-primary/40 hover:text-foreground transition-all"
+                  className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground hover:border-primary/40 hover:text-foreground transition-all truncate max-w-[280px]"
                 >
                   {item}
                 </button>

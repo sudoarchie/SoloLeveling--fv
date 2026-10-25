@@ -4,16 +4,17 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { createClient } from "@/utils/supabase/client"
 import { toast } from "sonner"
 import { format, isSameDay } from "date-fns"
-import { analyzeStudyPatterns, type TimerEvent } from "@/lib/study-pattern"
+import { analyzeStudyPatterns, type TimerEvent, type FocusType, normalizeFocusType } from "@/lib/study-pattern"
 
 export type PomodoroPreset = "25" | "90" | "180" | "custom"
 export type PomodoroStatus = "idle" | "running" | "paused" | "completed"
 export type PomodoroMode = "work" | "break"
-export type { TimerEvent } from "@/lib/study-pattern"
+export type { TimerEvent, FocusType } from "@/lib/study-pattern"
 
 export interface PomodoroSessionRecord {
   id: string
   preset: PomodoroPreset
+  focusType?: FocusType
   durationMinutes: number
   description: string
   completedAt: string
@@ -30,6 +31,7 @@ interface StoredPomodoroState {
   preset: PomodoroPreset
   customMinutes: number
   description: string
+  focusType?: FocusType
   mode: PomodoroMode
   status: PomodoroStatus
   targetEndTime: number | null
@@ -50,6 +52,7 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
   {
     id: "pomodoro-seed-1",
     preset: "180",
+    focusType: "lecture",
     durationMinutes: 180,
     description:
       "cn lecture Videos 5–7 | GATE 2016–2018 Layer Functions & Headers OSI & TCP/IP Reference Models, Layering Architecture & Encapsulation",
@@ -63,6 +66,7 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
   {
     id: "pomodoro-seed-2",
     preset: "180",
+    focusType: "practice",
     durationMinutes: 180,
     description: "Operating Systems & Computer Networks Deep Focus Block",
     completedAt: "2026-10-20T14:15:00.000Z",
@@ -75,6 +79,7 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
   {
     id: "pomodoro-seed-3",
     preset: "90",
+    focusType: "practice",
     durationMinutes: 90,
     description: "DSA & Algorithms Problem Practice",
     completedAt: "2026-10-20T11:45:00.000Z",
@@ -87,6 +92,7 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
   {
     id: "pomodoro-seed-4",
     preset: "25",
+    focusType: "revision",
     durationMinutes: 25,
     description: "Revision dsa notes",
     completedAt: "2026-10-20T12:21:00.000Z",
@@ -99,6 +105,7 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
   {
     id: "pomodoro-seed-5",
     preset: "25",
+    focusType: "revision",
     durationMinutes: 25,
     description: "Revision dsa notes - Quick recall",
     completedAt: "2026-10-20T10:15:00.000Z",
@@ -111,6 +118,7 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
   {
     id: "pomodoro-seed-6",
     preset: "90",
+    focusType: "revision",
     durationMinutes: 25,
     description: "Revision dsa notes & PYQ review",
     completedAt: "2026-10-20T09:38:00.000Z",
@@ -123,6 +131,7 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
   {
     id: "pomodoro-seed-7",
     preset: "25",
+    focusType: "revision",
     durationMinutes: 25,
     description: "Formula review & concepts",
     completedAt: "2026-10-20T08:30:00.000Z",
@@ -130,6 +139,19 @@ export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
     pauseCount: 0,
     totalPausedSeconds: 0,
     expAwarded: 30,
+    status: "completed",
+  },
+  {
+    id: "pomodoro-seed-8",
+    preset: "180",
+    focusType: "mock_test",
+    durationMinutes: 180,
+    description: "GATE CS Full Mock Exam 1 (Closed Book Simulation)",
+    completedAt: "2026-10-19T17:00:00.000Z",
+    startedAt: "2026-10-19T14:00:00.000Z",
+    pauseCount: 0,
+    totalPausedSeconds: 0,
+    expAwarded: 250,
     status: "completed",
   },
 ]
@@ -201,6 +223,7 @@ export function usePomodoro() {
   const [description, setDescriptionState] = useState<string>(
     "cn lecture Videos 5–7 | GATE 2016–2018 Layer Functions & Headers OSI & TCP/IP Reference Models, Layering Architecture & Encapsulation",
   )
+  const [focusType, setFocusTypeState] = useState<FocusType>("lecture")
   const [mode, setModeState] = useState<PomodoroMode>("work")
   const [status, setStatusState] = useState<PomodoroStatus>("idle")
   const [timeLeft, setTimeLeft] = useState<number>(180 * 60)
@@ -219,6 +242,7 @@ export function usePomodoro() {
     preset,
     customMinutes,
     description,
+    focusType,
     mode,
     status,
     targetEndTime,
@@ -236,6 +260,7 @@ export function usePomodoro() {
     preset,
     customMinutes,
     description,
+    focusType,
     mode,
     status,
     targetEndTime,
@@ -286,6 +311,7 @@ export function usePomodoro() {
           parsed.description ||
             "cn lecture Videos 5–7 | GATE 2016–2018 Layer Functions & Headers OSI & TCP/IP Reference Models, Layering Architecture & Encapsulation",
         )
+        if (parsed.focusType) setFocusTypeState(parsed.focusType)
         setModeState(parsed.mode || "work")
 
         if (parsed.activeSessionId) setActiveSessionId(parsed.activeSessionId)
@@ -341,20 +367,27 @@ export function usePomodoro() {
           .limit(50)
 
         if (!error && Array.isArray(remoteData) && remoteData.length > 0) {
-          const remoteRecords: PomodoroSessionRecord[] = remoteData.map((row: any) => ({
-            id: row.id,
-            preset: (row.preset as PomodoroPreset) || "25",
-            durationMinutes: row.duration_minutes,
-            description: row.description || "Focus block",
-            completedAt: row.ended_at || row.started_at,
-            expAwarded: row.exp_awarded || 0,
-            startedAt: row.started_at,
-            pauseCount: row.pause_count || 0,
-            totalPausedSeconds: row.total_paused_seconds || 0,
-            actualFocusSeconds: row.actual_focus_seconds || 0,
-            status: row.status,
-            events: Array.isArray(row.events) ? row.events : [],
-          }))
+          const remoteRecords: PomodoroSessionRecord[] = remoteData.map((row: any) => {
+            const eventFocusType = Array.isArray(row.events)
+              ? row.events.find((e: any) => e.focusType)?.focusType
+              : undefined
+            const detectedFocusType = normalizeFocusType(row.focus_type || eventFocusType, row.description)
+            return {
+              id: row.id,
+              preset: (row.preset as PomodoroPreset) || "25",
+              focusType: detectedFocusType,
+              durationMinutes: row.duration_minutes,
+              description: row.description || "Focus block",
+              completedAt: row.ended_at || row.started_at,
+              expAwarded: row.exp_awarded || 0,
+              startedAt: row.started_at,
+              pauseCount: row.pause_count || 0,
+              totalPausedSeconds: row.total_paused_seconds || 0,
+              actualFocusSeconds: row.actual_focus_seconds || 0,
+              status: row.status,
+              events: Array.isArray(row.events) ? row.events : [],
+            }
+          })
 
           setHistory((prev) => {
             const map = new Map<string, PomodoroSessionRecord>()
@@ -568,6 +601,7 @@ export function usePomodoro() {
         preset: patch.preset ?? current.preset,
         customMinutes: patch.customMinutes ?? current.customMinutes,
         description: patch.description ?? current.description,
+        focusType: patch.focusType !== undefined ? patch.focusType : current.focusType,
         mode: patch.mode ?? current.mode,
         status: patch.status ?? current.status,
         targetEndTime: patch.targetEndTime !== undefined ? patch.targetEndTime : current.targetEndTime,
@@ -600,16 +634,19 @@ export function usePomodoro() {
         (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `pomo_${Date.now()}`)
       const actualFocusSecs = Math.max(0, mins * 60 - current.totalPausedSeconds)
 
+      const sessionFocusType = current.focusType || normalizeFocusType(null, taskDesc)
       const completeEvent: TimerEvent = {
         type: "complete",
         timestamp: completeTimestamp,
         elapsedSeconds: actualFocusSecs,
+        note: sessionFocusType,
       }
       const finalEvents = [...current.events, completeEvent]
 
       const record: PomodoroSessionRecord = {
         id: sessionId,
         preset: completedPreset,
+        focusType: sessionFocusType,
         durationMinutes: mins,
         description: taskDesc.trim() || "Deep study block",
         completedAt: completeTimestamp,
@@ -1139,6 +1176,14 @@ export function usePomodoro() {
     [persistState],
   )
 
+  const setFocusType = useCallback(
+    (type: FocusType) => {
+      setFocusTypeState(type)
+      persistState({ focusType: type })
+    },
+    [persistState],
+  )
+
   const setBreakMode = useCallback(
     (isBreak: boolean) => {
       const newMode = isBreak ? "break" : "work"
@@ -1235,6 +1280,7 @@ export function usePomodoro() {
     preset,
     customMinutes,
     description,
+    focusType,
     mode,
     status,
     timeLeft,
@@ -1257,6 +1303,7 @@ export function usePomodoro() {
     finishEarly,
     setPreset,
     setDescription,
+    setFocusType,
     setBreakMode,
     getActiveContextForAI,
   }
