@@ -108,6 +108,7 @@ import {
 } from "@/lib/ranks"
 import RankUpgradeModal from "@/components/RankUpgradeModal"
 import { ProgressAnalytics } from "@/components/ProgressAnalytics"
+import { ProgressErrorBoundary } from "@/components/ProgressErrorBoundary"
 
 const ranks: RankInfo[] = RANKS
 const themes = [
@@ -1074,17 +1075,19 @@ export default function GATETracker() {
           </TabsContent>
 
           <TabsContent value="progress" className="mt-0 space-y-6">
-            <ProgressAnalytics
-              dailyReports={dailyReports}
-              currentExp={currentExp}
-              streak={streak}
-              currentRank={currentRank}
-              nextRank={nextRank}
-              weeklyStudyStats={weeklyStudyStats}
-              rankProgress={rankProgress}
-              soundEnabled={soundEnabled}
-              onNavigateTab={changeView}
-            />
+            <ProgressErrorBoundary>
+              <ProgressAnalytics
+                dailyReports={dailyReports}
+                currentExp={currentExp}
+                streak={streak}
+                currentRank={currentRank}
+                nextRank={nextRank}
+                weeklyStudyStats={weeklyStudyStats}
+                rankProgress={rankProgress}
+                soundEnabled={soundEnabled}
+                onNavigateTab={changeView}
+              />
+            </ProgressErrorBoundary>
           </TabsContent>
           <p className="mt-9 text-center text-xs text-muted-foreground/80">
             Show up. Stay curious. Keep going.

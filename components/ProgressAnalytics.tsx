@@ -27,6 +27,7 @@ import {
   ChevronUp,
   FileQuestion,
   Sparkles,
+  PieChart,
 } from "lucide-react"
 import {
   ComposedChart,
@@ -159,9 +160,18 @@ export function ProgressAnalytics({
   // 1. Process daily study data for the selected timeframe
   const studyTimeline = useMemo(() => {
     let runningExp = 0
+    const safeReports = dailyReports || []
     return Array.from({ length: timeframe }, (_, index) => {
       const date = subDays(new Date(), timeframe - index - 1)
-      const report = dailyReports.find((entry) => isSameDay(entry.date, date))
+      const report = safeReports.find((entry) => {
+        if (!entry?.date) return false
+        try {
+          const d = entry.date instanceof Date ? entry.date : new Date(entry.date)
+          return !isNaN(d.getTime()) && isSameDay(d, date)
+        } catch {
+          return false
+        }
+      })
       const practice = Number((report?.practiceHours ?? 0).toFixed(1))
       const exp = report?.expGained ?? 0
       runningExp += exp
@@ -185,12 +195,13 @@ export function ProgressAnalytics({
 
   // Summary statistics for the chosen timeframe
   const timeframeStats = useMemo(() => {
-    const totalPractice = studyTimeline.reduce((sum, d) => sum + d.practice, 0)
-    const totalLectures = studyTimeline.reduce((sum, d) => sum + d.lectures, 0)
-    const totalTopics = studyTimeline.reduce((sum, d) => sum + d.topics, 0)
-    const totalExp = studyTimeline.reduce((sum, d) => sum + d.exp, 0)
+    const totalPractice = studyTimeline.reduce((sum, d) => sum + (d.practice || 0), 0)
+    const totalLectures = studyTimeline.reduce((sum, d) => sum + (d.lectures || 0), 0)
+    const totalTopics = studyTimeline.reduce((sum, d) => sum + (d.topics || 0), 0)
+    const totalExp = studyTimeline.reduce((sum, d) => sum + (d.exp || 0), 0)
     const activeDays = studyTimeline.filter((d) => d.practice > 0 || d.lectures > 0 || d.topics > 0).length
-    const avgDailyPractice = Number((totalPractice / timeframe).toFixed(1))
+    const denom = timeframe || 1
+    const avgDailyPractice = Number((totalPractice / denom).toFixed(1))
     const morningCount = studyTimeline.filter((d) => d.morning).length
     const noDistractionCount = studyTimeline.filter((d) => d.distraction === "None").length
 
@@ -201,8 +212,8 @@ export function ProgressAnalytics({
       totalExp,
       activeDays,
       avgDailyPractice,
-      morningPct: Math.round((morningCount / timeframe) * 100),
-      focusPurityPct: Math.round((noDistractionCount / timeframe) * 100),
+      morningPct: Math.round((morningCount / denom) * 100),
+      focusPurityPct: Math.round((noDistractionCount / denom) * 100),
     }
   }, [studyTimeline, timeframe])
 
@@ -212,23 +223,40 @@ export function ProgressAnalytics({
     const windowEnd = new Date()
 
     // Filter Pomodoro sessions within this timeframe
-    const filteredSessions = pomodoroHistory.filter((s) => {
-      const d = s.completedAt || s.startedAt
+    const safePomodoro = pomodoroHistory || []
+    const filteredSessions = safePomodoro.filter((s) => {
+      const d = s?.completedAt || s?.startedAt
       if (!d) return false
-      const sessionDate = new Date(d)
-      return sessionDate >= windowStart && sessionDate <= windowEnd
+      try {
+        const sessionDate = new Date(d)
+        return !isNaN(sessionDate.getTime()) && sessionDate >= windowStart && sessionDate <= windowEnd
+      } catch {
+        return false
+      }
     })
 
     // Filter daily reports within this timeframe
-    const filteredReports = dailyReports.filter((r) => {
-      const d = new Date(r.date)
-      return d >= windowStart && d <= windowEnd
+    const safeReports = dailyReports || []
+    const filteredReports = safeReports.filter((r) => {
+      if (!r?.date) return false
+      try {
+        const d = r.date instanceof Date ? r.date : new Date(r.date)
+        return !isNaN(d.getTime()) && d >= windowStart && d <= windowEnd
+      } catch {
+        return false
+      }
     })
 
     // Filter mock attempts within this timeframe
-    const filteredAttempts = attempts.filter((a) => {
-      const d = new Date(a.attemptedAt)
-      return d >= windowStart && d <= windowEnd
+    const safeAttempts = attempts || []
+    const filteredAttempts = safeAttempts.filter((a) => {
+      if (!a?.attemptedAt) return false
+      try {
+        const d = new Date(a.attemptedAt)
+        return !isNaN(d.getTime()) && d >= windowStart && d <= windowEnd
+      } catch {
+        return false
+      }
     })
 
     const totalLecturesFromReports = filteredReports.reduce((sum, r) => sum + (r.lecturesCompleted || 0), 0)
@@ -251,8 +279,8 @@ export function ProgressAnalytics({
     let otherBlocks = 0
 
     filteredSessions.forEach((s) => {
-      const mins = s.durationMinutes || 25
-      const fType = s.focusType || normalizeFocusType(null, s.description)
+      const mins = s?.durationMinutes || 25
+      const fType = s?.focusType || normalizeFocusType(null, s?.description)
 
       switch (fType) {
         case "lecture":
@@ -272,6 +300,7 @@ export function ProgressAnalytics({
           mockBlocks++
           break
         case "other":
+        default:
           otherMinutes += mins
           otherBlocks++
           break
@@ -280,7 +309,7 @@ export function ProgressAnalytics({
 
     // Add mock test duration from exam attempts
     filteredAttempts.forEach((a) => {
-      mockMinutes += a.timeSpentMinutes || (a.examType === "full_paper" ? 180 : 60)
+      mockMinutes += a?.timeSpentMinutes || (a?.examType === "full_paper" ? 180 : 60)
     })
 
     // Reconcile with daily report quantities
@@ -303,7 +332,9 @@ export function ProgressAnalytics({
     const totalCalculatedHours =
       Number(
         (finalLectureHours + finalPracticeHours + finalRevisionHours + finalMockHours + finalOtherHours).toFixed(1),
-      ) || 0.1
+      ) || 0
+
+    const denom = totalCalculatedHours > 0 ? totalCalculatedHours : 1
 
     const categories = [
       {
@@ -315,7 +346,7 @@ export function ProgressAnalytics({
         sessionsCount: lectureBlocks,
         color: "#3B82F6",
         badgeColor: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-        pct: Math.min(100, Math.round((finalLectureHours / totalCalculatedHours) * 100)),
+        pct: totalCalculatedHours > 0 ? Math.min(100, Math.round((finalLectureHours / denom) * 100)) : 0,
         icon: BookOpen,
         desc: "Theory videos, class concepts & lecture ingestion",
       },
@@ -328,7 +359,7 @@ export function ProgressAnalytics({
         sessionsCount: practiceBlocks,
         color: "#10B981",
         badgeColor: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
-        pct: Math.min(100, Math.round((finalPracticeHours / totalCalculatedHours) * 100)),
+        pct: totalCalculatedHours > 0 ? Math.min(100, Math.round((finalPracticeHours / denom) * 100)) : 0,
         icon: PenLine,
         desc: "Active retrieval practice, PYQ solving & numericals",
       },
@@ -341,7 +372,7 @@ export function ProgressAnalytics({
         sessionsCount: revisionBlocks,
         color: "#8B5CF6",
         badgeColor: "bg-purple-500/10 text-purple-500 border-purple-500/20",
-        pct: Math.min(100, Math.round((finalRevisionHours / totalCalculatedHours) * 100)),
+        pct: totalCalculatedHours > 0 ? Math.min(100, Math.round((finalRevisionHours / denom) * 100)) : 0,
         icon: RotateCcw,
         desc: "Spaced repetition curve reviews & formula recall",
       },
@@ -354,7 +385,7 @@ export function ProgressAnalytics({
         sessionsCount: mockBlocks + totalMockAttempts,
         color: "#F59E0B",
         badgeColor: "bg-amber-500/10 text-amber-500 border-amber-500/20",
-        pct: Math.min(100, Math.round((finalMockHours / totalCalculatedHours) * 100)),
+        pct: totalCalculatedHours > 0 ? Math.min(100, Math.round((finalMockHours / denom) * 100)) : 0,
         icon: Trophy,
         desc: "Timed full exam simulations & subject test papers",
       },
@@ -367,7 +398,7 @@ export function ProgressAnalytics({
         sessionsCount: otherBlocks,
         color: "#64748B",
         badgeColor: "bg-slate-500/10 text-slate-400 border-slate-500/20",
-        pct: Math.min(100, Math.round((finalOtherHours / totalCalculatedHours) * 100)),
+        pct: totalCalculatedHours > 0 ? Math.min(100, Math.round((finalOtherHours / denom) * 100)) : 0,
         icon: SlidersHorizontal,
         desc: "Syllabus mapping, mistake notebook & strategy planning",
       },
@@ -387,17 +418,17 @@ export function ProgressAnalytics({
 
   // 3. Study pattern intelligence (Pomodoro telemetry & stamina)
   const patternAnalysis = useMemo(() => {
-    return analyzeStudyPatterns(pomodoroHistory)
+    return analyzeStudyPatterns(pomodoroHistory || [])
   }, [pomodoroHistory])
 
   // Circadian window chart data
   const circadianChartData = useMemo(() => {
-    const bd = patternAnalysis.startTimings.breakdown
+    const bd = patternAnalysis?.startTimings?.breakdown ?? { morning: 0, afternoon: 0, evening: 0, night: 0 }
     return [
-      { window: "Morning", hours: "05:00 - 11:59", sessions: bd.morning, fill: "#F59E0B" },
-      { window: "Afternoon", hours: "12:00 - 16:59", sessions: bd.afternoon, fill: "#3B82F6" },
-      { window: "Evening", hours: "17:00 - 20:59", sessions: bd.evening, fill: "#8B5CF6" },
-      { window: "Night", hours: "21:00 - 04:59", sessions: bd.night, fill: "#6366F1" },
+      { window: "Morning", hours: "05:00 - 11:59", sessions: bd.morning ?? 0, fill: "#F59E0B" },
+      { window: "Afternoon", hours: "12:00 - 16:59", sessions: bd.afternoon ?? 0, fill: "#3B82F6" },
+      { window: "Evening", hours: "17:00 - 20:59", sessions: bd.evening ?? 0, fill: "#8B5CF6" },
+      { window: "Night", hours: "21:00 - 04:59", sessions: bd.night ?? 0, fill: "#6366F1" },
     ]
   }, [patternAnalysis])
 
@@ -562,20 +593,20 @@ export function ProgressAnalytics({
               <Badge
                 variant="outline"
                 className={`font-mono text-[10px] ${
-                  patternAnalysis.pausePatterns.pauseFrequencyRisk === "LOW"
+                  (patternAnalysis?.pausePatterns?.pauseFrequencyRisk ?? "LOW") === "LOW"
                     ? "border-emerald-500/40 text-emerald-500 bg-emerald-500/10"
-                    : patternAnalysis.pausePatterns.pauseFrequencyRisk === "MODERATE"
+                    : (patternAnalysis?.pausePatterns?.pauseFrequencyRisk ?? "LOW") === "MODERATE"
                       ? "border-amber-500/40 text-amber-500 bg-amber-500/10"
                       : "border-rose-500/40 text-rose-500 bg-rose-500/10"
                 }`}
               >
-                {patternAnalysis.pausePatterns.pauseFrequencyRisk} RISK
+                {patternAnalysis?.pausePatterns?.pauseFrequencyRisk ?? "LOW"} RISK
               </Badge>
             </div>
             <CardTitle className="text-2xl font-bold tracking-tight">
-              {patternAnalysis.completedSessions}
+              {patternAnalysis?.completedSessions ?? 0}
               <span className="text-sm font-normal text-muted-foreground ml-1">
-                / {patternAnalysis.totalSessions} sessions
+                / {patternAnalysis?.totalSessions ?? 0} sessions
               </span>
             </CardTitle>
           </CardHeader>
@@ -583,18 +614,18 @@ export function ProgressAnalytics({
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>Avg pauses per session</span>
               <span className="font-mono font-medium text-foreground">
-                {patternAnalysis.pausePatterns.avgPausesPerSession}
+                {patternAnalysis?.pausePatterns?.avgPausesPerSession ?? "0.0"}
               </span>
             </div>
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>Primary window</span>
               <span className="font-medium text-foreground truncate max-w-[130px]">
-                {patternAnalysis.startTimings.primaryWindow.split(" (")[0]}
+                {(patternAnalysis?.startTimings?.primaryWindow ?? "Afternoon").split(" (")[0]}
               </span>
             </div>
             <p className="text-[11px] text-muted-foreground truncate">
-              {patternAnalysis.pausePatterns.timingOfPauses.earlyPausesCount > 0 ? (
-                <span>⚠️ {patternAnalysis.pausePatterns.timingOfPauses.earlyPausesCount} warmup pauses logged</span>
+              {(patternAnalysis?.pausePatterns?.timingOfPauses?.earlyPausesCount ?? 0) > 0 ? (
+                <span>⚠️ {patternAnalysis?.pausePatterns?.timingOfPauses?.earlyPausesCount} warmup pauses logged</span>
               ) : (
                 <span>✓ Smooth flow entry without initial hesitation</span>
               )}
@@ -730,7 +761,7 @@ export function ProgressAnalytics({
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>
                   <CardTitle className="text-base font-semibold flex items-center gap-2">
-                    <PieChartIcon className="h-4 w-4 text-primary" />
+                    <PieChart className="h-4 w-4 text-primary" />
                     Hours & Quantity Invested by Focus Activity
                   </CardTitle>
                   <CardDescription>
@@ -773,14 +804,15 @@ export function ProgressAnalytics({
                         </p>
                       </div>
 
-                      <Progress
-                        value={cat.pct}
-                        className="h-1.5"
-                        style={{
-                          // @ts-ignore
-                          "--progress-background": cat.color,
-                        }}
-                      />
+                      <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${Math.max(0, Math.min(100, cat.pct))}%`,
+                            backgroundColor: cat.color,
+                          }}
+                        />
+                      </div>
 
                       <p className="text-[10px] text-muted-foreground line-clamp-2">
                         {cat.desc}
@@ -858,7 +890,14 @@ export function ProgressAnalytics({
                       tickLine={false}
                       fontSize={11}
                       unit="h"
-                      domain={[0, (dataMax: number) => Math.max(Math.ceil(dataMax + 1), Math.ceil(targetDailyHours + 1))]}
+                      domain={[
+                        0,
+                        (dataMax: number) => {
+                          const max = typeof dataMax === "number" && !isNaN(dataMax) ? dataMax : 0
+                          const target = typeof targetDailyHours === "number" && !isNaN(targetDailyHours) ? targetDailyHours : 8
+                          return Math.max(Math.ceil(max + 1), Math.ceil(target + 1), 6)
+                        },
+                      ]}
                     />
                     <ChartTooltip content={<ChartTooltipContent />} />
                     <ReferenceLine
@@ -1042,7 +1081,7 @@ export function ProgressAnalytics({
                     <CardDescription>When you initiate focus sessions</CardDescription>
                   </div>
                   <Badge variant="outline" className="text-xs">
-                    Primary: {patternAnalysis.startTimings.primaryWindow.split(" (")[0]}
+                    Primary: {(patternAnalysis?.startTimings?.primaryWindow ?? "Afternoon").split(" (")[0]}
                   </Badge>
                 </div>
               </CardHeader>
@@ -1080,12 +1119,12 @@ export function ProgressAnalytics({
                   <Badge
                     variant="outline"
                     className={`font-mono text-xs ${
-                      patternAnalysis.pausePatterns.pauseFrequencyRisk === "LOW"
+                      (patternAnalysis?.pausePatterns?.pauseFrequencyRisk ?? "LOW") === "LOW"
                         ? "border-emerald-500/40 text-emerald-500"
                         : "border-amber-500/40 text-amber-500"
                     }`}
                   >
-                    {patternAnalysis.pausePatterns.pauseFrequencyRisk} FRICTION
+                    {patternAnalysis?.pausePatterns?.pauseFrequencyRisk ?? "LOW"} FRICTION
                   </Badge>
                 </div>
                 <CardDescription>Live telemetry from timer pauses & resumes</CardDescription>
@@ -1097,7 +1136,7 @@ export function ProgressAnalytics({
                     Focus Assessment
                   </p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    {patternAnalysis.pausePatterns.pauseFrequencyDescription}
+                    {patternAnalysis?.pausePatterns?.pauseFrequencyDescription ?? "Consistent focus rhythm."}
                   </p>
                 </div>
 
@@ -1107,22 +1146,22 @@ export function ProgressAnalytics({
                     Pause Timing Diagnostic
                   </p>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    {patternAnalysis.pausePatterns.timingOfPauses.diagnosticNote}
+                    {patternAnalysis?.pausePatterns?.timingOfPauses?.diagnosticNote ?? "Telemetry indicates stable work blocks."}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 pt-1 text-center">
                   <div className="rounded-md border p-2 bg-background">
                     <p className="text-[10px] text-muted-foreground">Total Pauses</p>
-                    <p className="text-lg font-bold font-mono">{patternAnalysis.pausePatterns.totalPauses}</p>
+                    <p className="text-lg font-bold font-mono">{patternAnalysis?.pausePatterns?.totalPauses ?? 0}</p>
                   </div>
                   <div className="rounded-md border p-2 bg-background">
                     <p className="text-[10px] text-muted-foreground">Avg Duration</p>
-                    <p className="text-lg font-bold font-mono">{patternAnalysis.pausePatterns.avgPauseDurationMinutes}m</p>
+                    <p className="text-lg font-bold font-mono">{patternAnalysis?.pausePatterns?.avgPauseDurationMinutes ?? 0}m</p>
                   </div>
                   <div className="rounded-md border p-2 bg-background">
                     <p className="text-[10px] text-muted-foreground">Minutes Lost</p>
-                    <p className="text-lg font-bold font-mono text-amber-500">{patternAnalysis.pausePatterns.totalPausedMinutes}m</p>
+                    <p className="text-lg font-bold font-mono text-amber-500">{patternAnalysis?.pausePatterns?.totalPausedMinutes ?? 0}m</p>
                   </div>
                 </div>
 
