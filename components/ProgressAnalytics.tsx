@@ -67,6 +67,7 @@ import type { RankInfo, WeeklyStudyStats, RankProgressDetails } from "@/lib/rank
 import { ActivityHeatmap } from "@/components/ActivityHeatmap"
 import { MockTestInput } from "@/components/MockTestInput"
 import { StreakTracker } from "@/components/StreakTracker"
+import { PauseTimeAnalysis } from "@/components/PauseTimeAnalysis"
 
 export interface ProgressAnalyticsProps {
   dailyReports: DailyReport[]
@@ -418,8 +419,21 @@ export function ProgressAnalytics({
 
   // 3. Study pattern intelligence (Pomodoro telemetry & stamina)
   const patternAnalysis = useMemo(() => {
-    return analyzeStudyPatterns(pomodoroHistory || [])
-  }, [pomodoroHistory])
+    const safePomodoro = pomodoroHistory || []
+    const windowStart = subDays(new Date(), timeframe)
+    const windowEnd = new Date()
+    const inRange = safePomodoro.filter((s) => {
+      const d = s?.completedAt || s?.startedAt
+      if (!d) return false
+      try {
+        const sessionDate = new Date(d)
+        return !isNaN(sessionDate.getTime()) && sessionDate >= windowStart && sessionDate <= windowEnd
+      } catch {
+        return false
+      }
+    })
+    return analyzeStudyPatterns(inRange.length > 0 ? inRange : safePomodoro)
+  }, [pomodoroHistory, timeframe])
 
   // Circadian window chart data
   const circadianChartData = useMemo(() => {
@@ -624,7 +638,11 @@ export function ProgressAnalytics({
               </span>
             </div>
             <p className="text-[11px] text-muted-foreground truncate">
-              {(patternAnalysis?.pausePatterns?.timingOfPauses?.earlyPausesCount ?? 0) > 0 ? (
+              {patternAnalysis?.pausePatterns?.peakLagWindow && patternAnalysis.pausePatterns.peakLagWindow.window !== "none" ? (
+                <span className="text-amber-500 font-medium">
+                  ⚠️ Peak pauses in {patternAnalysis.pausePatterns.peakLagWindow.label} ({patternAnalysis.pausePatterns.peakLagWindow.pauseCount} pauses)
+                </span>
+              ) : (patternAnalysis?.pausePatterns?.timingOfPauses?.earlyPausesCount ?? 0) > 0 ? (
                 <span>⚠️ {patternAnalysis?.pausePatterns?.timingOfPauses?.earlyPausesCount} warmup pauses logged</span>
               ) : (
                 <span>✓ Smooth flow entry without initial hesitation</span>
@@ -1178,6 +1196,12 @@ export function ProgressAnalytics({
               </CardContent>
             </Card>
           </div>
+
+          {/* Time-of-Day Pause & Lag Distribution Diagnostic */}
+          <PauseTimeAnalysis
+            analysis={patternAnalysis}
+            onNavigateTab={onNavigateTab}
+          />
         </div>
       )}
 

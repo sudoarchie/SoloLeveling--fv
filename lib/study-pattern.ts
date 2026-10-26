@@ -117,6 +117,9 @@ export interface StudyPatternAnalysis {
       midLatePausesCount: number // after 40+ mins
       diagnosticNote: string
     }
+    timeBreakdown: Record<TimeWindowKey, PauseTimeWindowBreakdown>
+    hourlyBreakdown: HourlyPauseBreakdown[]
+    peakLagWindow?: PeakLagWindowDiagnostic
   }
   activeSessionAnalysis?: {
     status: string
@@ -126,6 +129,63 @@ export interface StudyPatternAnalysis {
     currentlyPausedDurationMinutes?: number
     liveAssessment: string
   }
+}
+
+export type TimeWindowKey = "morning" | "afternoon" | "evening" | "night"
+
+export interface PauseTimeWindowBreakdown {
+  window: TimeWindowKey
+  label: string
+  hours: string
+  pauses: number
+  totalPausedMinutes: number
+  sessionCount: number
+  avgPausesPerSession: number
+  percentageOfTotalPauses: number
+  isPeakLag: boolean
+}
+
+export interface HourlyPauseBreakdown {
+  hour: number
+  label: string
+  window: TimeWindowKey
+  pauses: number
+  totalPausedMinutes: number
+}
+
+export interface LagSolution {
+  title: string
+  description: string
+  type: "interval" | "task" | "environment" | "circadian"
+}
+
+export interface PeakLagWindowDiagnostic {
+  window: TimeWindowKey | "none"
+  label: string
+  timeRange: string
+  pauseCount: number
+  totalPausedMinutes: number
+  percentageOfTotalPauses: number
+  avgPausesPerSession: number
+  lagSeverity: "HIGH" | "MODERATE" | "LOW"
+  disturbanceSummary: string
+  distractedStateSummary: string
+  rootCauseAnalysis: string
+  actionableSolutions: LagSolution[]
+}
+
+export function getTimeWindowFromHour(hour: number): TimeWindowKey {
+  if (hour >= 5 && hour < 12) return "morning"
+  if (hour >= 12 && hour < 17) return "afternoon"
+  if (hour >= 17 && hour < 21) return "evening"
+  return "night"
+}
+
+export function formatHourLabel(hour: number): string {
+  if (hour === 0) return "12 AM"
+  if (hour === 12) return "12 PM"
+  if (hour < 12) return `${hour} AM`
+  return `${hour - 12} PM`
 }
 
 /**
@@ -220,13 +280,31 @@ export function analyzeStudyPatterns(
   let earlyPausesCount = 0 // < 15 mins
   let midLatePausesCount = 0 // > 40 mins
 
+  const windowStats: Record<TimeWindowKey, { pauses: number; pausedSeconds: number; sessions: number }> = {
+    morning: { pauses: 0, pausedSeconds: 0, sessions: 0 },
+    afternoon: { pauses: 0, pausedSeconds: 0, sessions: 0 },
+    evening: { pauses: 0, pausedSeconds: 0, sessions: 0 },
+    night: { pauses: 0, pausedSeconds: 0, sessions: 0 },
+  }
+
+  const hourlyStats: Array<{ pauses: number; pausedSeconds: number }> = Array.from({ length: 24 }, () => ({
+    pauses: 0,
+    pausedSeconds: 0,
+  }))
+
   normalized.forEach((s) => {
     totalPauses += s.pauseCount
     totalPausedSeconds += s.totalPausedSeconds
 
+    const sessHour = s.startedAt ? s.startedAt.getHours() : 12
+    const sessWindow = getTimeWindowFromHour(sessHour)
+    windowStats[sessWindow].sessions++
+
     // Inspect events for pause timing
-    s.events.forEach((ev) => {
-      if (ev.type === "pause") {
+    const pauseEvents = s.events.filter((ev) => ev.type === "pause")
+
+    if (pauseEvents.length > 0) {
+      pauseEvents.forEach((ev) => {
         if (typeof ev.elapsedSeconds === "number") {
           if (ev.elapsedSeconds < 15 * 60) {
             earlyPausesCount++
@@ -234,14 +312,312 @@ export function analyzeStudyPatterns(
             midLatePausesCount++
           }
         }
-      }
-    })
+
+        let evHour = sessHour
+        if (ev.timestamp) {
+          try {
+            const evDate = new Date(ev.timestamp)
+            if (!isNaN(evDate.getTime())) {
+              evHour = evDate.getHours()
+            }
+          } catch {}
+        }
+
+        const evWindow = getTimeWindowFromHour(evHour)
+        const evPauseDuration =
+          typeof ev.pauseDurationSeconds === "number" && ev.pauseDurationSeconds > 0
+            ? ev.pauseDurationSeconds
+            : (s.pauseCount > 0 ? s.totalPausedSeconds / s.pauseCount : 0)
+
+        windowStats[evWindow].pauses++
+        windowStats[evWindow].pausedSeconds += evPauseDuration
+
+        hourlyStats[evHour].pauses++
+        hourlyStats[evHour].pausedSeconds += evPauseDuration
+      })
+    } else if (s.pauseCount > 0) {
+      // Legacy session or session without separate event list
+      windowStats[sessWindow].pauses += s.pauseCount
+      windowStats[sessWindow].pausedSeconds += s.totalPausedSeconds
+
+      hourlyStats[sessHour].pauses += s.pauseCount
+      hourlyStats[sessHour].pausedSeconds += s.totalPausedSeconds
+    }
   })
 
   const avgPausesPerSession = totalSessions > 0 ? Number((totalPauses / totalSessions).toFixed(1)) : 0
   const totalPausedMinutes = Math.round(totalPausedSeconds / 60)
   const avgPauseDurationMinutes =
     totalPauses > 0 ? Number(((totalPausedSeconds / totalPauses) / 60).toFixed(1)) : 0
+
+  // 2b. Time Window Pause & Lag Distribution
+  const pauseTimeBreakdown: Record<TimeWindowKey, PauseTimeWindowBreakdown> = {
+    morning: {
+      window: "morning",
+      label: "Morning",
+      hours: "05:00 - 11:59",
+      pauses: windowStats.morning.pauses,
+      totalPausedMinutes: Math.round(windowStats.morning.pausedSeconds / 60),
+      sessionCount: windowStats.morning.sessions,
+      avgPausesPerSession:
+        windowStats.morning.sessions > 0
+          ? Number((windowStats.morning.pauses / windowStats.morning.sessions).toFixed(1))
+          : 0,
+      percentageOfTotalPauses:
+        totalPauses > 0 ? Math.round((windowStats.morning.pauses / totalPauses) * 100) : 0,
+      isPeakLag: false,
+    },
+    afternoon: {
+      window: "afternoon",
+      label: "Afternoon",
+      hours: "12:00 - 16:59",
+      pauses: windowStats.afternoon.pauses,
+      totalPausedMinutes: Math.round(windowStats.afternoon.pausedSeconds / 60),
+      sessionCount: windowStats.afternoon.sessions,
+      avgPausesPerSession:
+        windowStats.afternoon.sessions > 0
+          ? Number((windowStats.afternoon.pauses / windowStats.afternoon.sessions).toFixed(1))
+          : 0,
+      percentageOfTotalPauses:
+        totalPauses > 0 ? Math.round((windowStats.afternoon.pauses / totalPauses) * 100) : 0,
+      isPeakLag: false,
+    },
+    evening: {
+      window: "evening",
+      label: "Evening",
+      hours: "17:00 - 20:59",
+      pauses: windowStats.evening.pauses,
+      totalPausedMinutes: Math.round(windowStats.evening.pausedSeconds / 60),
+      sessionCount: windowStats.evening.sessions,
+      avgPausesPerSession:
+        windowStats.evening.sessions > 0
+          ? Number((windowStats.evening.pauses / windowStats.evening.sessions).toFixed(1))
+          : 0,
+      percentageOfTotalPauses:
+        totalPauses > 0 ? Math.round((windowStats.evening.pauses / totalPauses) * 100) : 0,
+      isPeakLag: false,
+    },
+    night: {
+      window: "night",
+      label: "Late Night",
+      hours: "21:00 - 04:59",
+      pauses: windowStats.night.pauses,
+      totalPausedMinutes: Math.round(windowStats.night.pausedSeconds / 60),
+      sessionCount: windowStats.night.sessions,
+      avgPausesPerSession:
+        windowStats.night.sessions > 0
+          ? Number((windowStats.night.pauses / windowStats.night.sessions).toFixed(1))
+          : 0,
+      percentageOfTotalPauses:
+        totalPauses > 0 ? Math.round((windowStats.night.pauses / totalPauses) * 100) : 0,
+      isPeakLag: false,
+    },
+  }
+
+  const hourlyBreakdown: HourlyPauseBreakdown[] = hourlyStats.map((stat, hr) => ({
+    hour: hr,
+    label: formatHourLabel(hr),
+    window: getTimeWindowFromHour(hr),
+    pauses: stat.pauses,
+    totalPausedMinutes: Math.round(stat.pausedSeconds / 60),
+  }))
+
+  const windowKeys: TimeWindowKey[] = ["morning", "afternoon", "evening", "night"]
+  let peakKey: TimeWindowKey = "afternoon"
+  let maxWindowPauses = -1
+  let maxWindowMinutes = -1
+
+  windowKeys.forEach((key) => {
+    const item = pauseTimeBreakdown[key]
+    if (
+      item.pauses > maxWindowPauses ||
+      (item.pauses === maxWindowPauses && item.totalPausedMinutes > maxWindowMinutes)
+    ) {
+      maxWindowPauses = item.pauses
+      maxWindowMinutes = item.totalPausedMinutes
+      peakKey = key
+    }
+  })
+
+  let peakLagWindow: PeakLagWindowDiagnostic
+
+  if (totalPauses === 0 || maxWindowPauses === 0) {
+    peakLagWindow = {
+      window: "none",
+      label: "Zero Interruption Flow",
+      timeRange: "All Day",
+      pauseCount: 0,
+      totalPausedMinutes: 0,
+      percentageOfTotalPauses: 0,
+      avgPausesPerSession: 0,
+      lagSeverity: "LOW",
+      disturbanceSummary: "No external disruptions or device interruptions logged.",
+      distractedStateSummary: "Flawless focus stamina with zero distraction pauses.",
+      rootCauseAnalysis: "Zero pauses recorded across all study windows. You are sustaining unbroken deep flow without friction or distraction leakage.",
+      actionableSolutions: [
+        {
+          title: "Maintain Flow Rituals",
+          description: "Keep your current study environment, desk setup, and study hours consistent.",
+          type: "circadian",
+        },
+      ],
+    }
+  } else {
+    pauseTimeBreakdown[peakKey].isPeakLag = true
+    const peak = pauseTimeBreakdown[peakKey]
+    const lagSeverity: "HIGH" | "MODERATE" | "LOW" =
+      peak.pauses >= 4 || peak.percentageOfTotalPauses >= 45
+        ? "HIGH"
+        : peak.pauses >= 2 || peak.percentageOfTotalPauses >= 30
+          ? "MODERATE"
+          : "LOW"
+
+    if (peakKey === "afternoon") {
+      peakLagWindow = {
+        window: "afternoon",
+        label: "Afternoon",
+        timeRange: "12:00 PM – 4:59 PM",
+        pauseCount: peak.pauses,
+        totalPausedMinutes: peak.totalPausedMinutes,
+        percentageOfTotalPauses: peak.percentageOfTotalPauses,
+        avgPausesPerSession: peak.avgPausesPerSession,
+        lagSeverity,
+        disturbanceSummary: "Ambient household noise, message notifications, social calls, or peer interruptions during peak daytime hours.",
+        distractedStateSummary: "Post-lunch circadian somnolence (food coma), natural dip in body temperature and cortisol, and mental fatigue from morning tasks.",
+        rootCauseAnalysis: `Your primary lagging period is the Afternoon (${peak.pauses} pauses, ${peak.totalPausedMinutes}m lost — ${peak.percentageOfTotalPauses}% of all pauses). This typically stems from the postprandial circadian dip colliding with daytime household or phone distractions. Attempting 90-minute deep blocks here without an active buffer often leads to mind-wandering and frequent pauses.`,
+        actionableSolutions: [
+          {
+            title: "Switch to 25m Pomodoro Sprints",
+            description: "Instead of long 90m blocks, use 25m or 30m sprints in the afternoon. Shorter horizons dramatically reduce the urge to pause.",
+            type: "interval",
+          },
+          {
+            title: "Active PYQ Solving Over Video Lectures",
+            description: "Passive video watching induces drowsiness. Switch afternoon blocks to active problem-solving or flashcard drills.",
+            type: "task",
+          },
+          {
+            title: "Pre-Session Sun & Hydration Reset",
+            description: "Take a 10-minute walk in natural sunlight and drink a large glass of cold water before starting your 1 PM block.",
+            type: "circadian",
+          },
+          {
+            title: "Aggressive Notification Lockdown",
+            description: "Place your phone in another room or activate 'Do Not Disturb' to eliminate the phone check reflex during daytime.",
+            type: "environment",
+          },
+        ],
+      }
+    } else if (peakKey === "night") {
+      peakLagWindow = {
+        window: "night",
+        label: "Late Night",
+        timeRange: "9:00 PM – 4:59 AM",
+        pauseCount: peak.pauses,
+        totalPausedMinutes: peak.totalPausedMinutes,
+        percentageOfTotalPauses: peak.percentageOfTotalPauses,
+        avgPausesPerSession: peak.avgPausesPerSession,
+        lagSeverity,
+        disturbanceSummary: "Social media browsing, streaming urge, Discord/WhatsApp group chatter.",
+        distractedStateSummary: "Accumulated sleep pressure (adenosine buildup), cognitive fatigue, prefrontal cortex exhaustion, and blue light eye strain.",
+        rootCauseAnalysis: `Your primary lagging period is Late Night (${peak.pauses} pauses, ${peak.totalPausedMinutes}m lost — ${peak.percentageOfTotalPauses}% of all pauses). Your brain's willpower and executive control are biologically depleted after a full day, leading to rapid attention decay and micro-interruptions.`,
+        actionableSolutions: [
+          {
+            title: "Enforce a 11:30 PM Hard Curfew",
+            description: "End study blocks by 11:30 PM. Forcing study past midnight trades tomorrow's analytical sharpness for low-efficiency hours.",
+            type: "circadian",
+          },
+          {
+            title: "Formula & Spaced Recall Only",
+            description: "Avoid tackling hard new problem sets late at night. Reserve this slot for light formula review or flashcard review.",
+            type: "task",
+          },
+          {
+            title: "20-Minute Micro-Blocks",
+            description: "If night study is required, use tight 20-minute blocks with 5-minute active stretch breaks to fight drowsiness.",
+            type: "interval",
+          },
+          {
+            title: "Warm Screen Temperature & Dark Room Shield",
+            description: "Enable night-shift warm color modes and turn off non-essential notifications to reduce neurological arousal.",
+            type: "environment",
+          },
+        ],
+      }
+    } else if (peakKey === "morning") {
+      peakLagWindow = {
+        window: "morning",
+        label: "Morning",
+        timeRange: "5:00 AM – 11:59 AM",
+        pauseCount: peak.pauses,
+        totalPausedMinutes: peak.totalPausedMinutes,
+        percentageOfTotalPauses: peak.percentageOfTotalPauses,
+        avgPausesPerSession: peak.avgPausesPerSession,
+        lagSeverity,
+        disturbanceSummary: "Morning household commotion, checking incoming morning emails/news, or unexpected errands.",
+        distractedStateSummary: "Startup friction, sleep inertia, hesitation to begin challenging problem sets, or wandering attention during warmup.",
+        rootCauseAnalysis: `Your primary lagging period is Morning (${peak.pauses} pauses, ${peak.totalPausedMinutes}m lost — ${peak.percentageOfTotalPauses}% of all pauses). This points to warmup friction—initial resistance entering the flow state right after starting.`,
+        actionableSolutions: [
+          {
+            title: "The 5-Minute Immersion Rule",
+            description: "Commit to studying for just 5 minutes without touching any other device or tab. Once past the 5-minute barrier, flow takes over.",
+            type: "interval",
+          },
+          {
+            title: "Prepare Desk The Night Before",
+            description: "Open the exact problem sheet or PDF the night before so activation energy is near zero when you sit down.",
+            type: "environment",
+          },
+          {
+            title: "Hydration & Sunlight Upon Waking",
+            description: "Drink 500ml of water and get morning daylight within 30 minutes of waking to clear adenosine sleep inertia immediately.",
+            type: "circadian",
+          },
+          {
+            title: "Zero-Phone Morning Routine",
+            description: "Do not open social media or messaging apps until your first focus block is 100% completed.",
+            type: "environment",
+          },
+        ],
+      }
+    } else {
+      peakLagWindow = {
+        window: "evening",
+        label: "Evening",
+        timeRange: "5:00 PM – 8:59 PM",
+        pauseCount: peak.pauses,
+        totalPausedMinutes: peak.totalPausedMinutes,
+        percentageOfTotalPauses: peak.percentageOfTotalPauses,
+        avgPausesPerSession: peak.avgPausesPerSession,
+        lagSeverity,
+        disturbanceSummary: "Household dinner preparations, family members returning home, peer social plans.",
+        distractedStateSummary: "End-of-day cognitive transition burnout after day classes, college lectures, or work commitments.",
+        rootCauseAnalysis: `Your primary lagging period is the Evening (${peak.pauses} pauses, ${peak.totalPausedMinutes}m lost — ${peak.percentageOfTotalPauses}% of all pauses). Shifting from daytime tasks to focused self-study without an intentional buffer causes attention fragmentation.`,
+        actionableSolutions: [
+          {
+            title: "20-Minute Decompression Buffer",
+            description: "Take a 20-minute physical walk, shower, or tea break between daytime commitments and your evening study chamber.",
+            type: "circadian",
+          },
+          {
+            title: "Inform Family / Study Boundary",
+            description: "Set a clear boundary with household members that 6 PM to 8 PM is your uninterrupted deep focus window.",
+            type: "environment",
+          },
+          {
+            title: "45-Minute Focused Sprints",
+            description: "Cap evening sessions at 45 minutes with structured 10-minute active stretch breaks.",
+            type: "interval",
+          },
+          {
+            title: "Active Practice & Revision",
+            description: "Use evening for problem solving or revising what you studied earlier in the week to keep cognition engaged.",
+            type: "task",
+          },
+        ],
+      }
+    }
+  }
 
   let pauseFrequencyRisk: "HIGH" | "MODERATE" | "LOW" = "LOW"
   let pauseFrequencyDescription = "High Continuous Focus: Very few or no pauses taken. Excellent flow state."
@@ -326,6 +702,9 @@ export function analyzeStudyPatterns(
         midLatePausesCount,
         diagnosticNote,
       },
+      timeBreakdown: pauseTimeBreakdown,
+      hourlyBreakdown,
+      peakLagWindow,
     },
     activeSessionAnalysis,
   }
@@ -357,6 +736,15 @@ export function formatStudyPatternForPrompt(analysis: StudyPatternAnalysis): str
   section += `  - Pattern Evaluation: ${pausePatterns.pauseFrequencyDescription}\n`
   section += `  - Pause Timing Behavior: ${pausePatterns.timingOfPauses.diagnosticNote}\n`
 
+  if (pausePatterns.peakLagWindow && pausePatterns.peakLagWindow.window !== "none") {
+    const lag = pausePatterns.peakLagWindow
+    section += `• Time-of-Day Lag Diagnostic (Lagging Hours):\n`
+    section += `  - Peak Interruption Window: ${lag.label} (${lag.timeRange})\n`
+    section += `  - Lag Severity: ${lag.lagSeverity} (${lag.pauseCount} pauses, ${lag.totalPausedMinutes}m lost, ${lag.percentageOfTotalPauses}% of all pauses)\n`
+    section += `  - Disturbance Factor: ${lag.disturbanceSummary}\n`
+    section += `  - Distracted State Factor: ${lag.distractedStateSummary}\n`
+  }
+
   if (activeSessionAnalysis) {
     section += `• Live Active Timer Telemetry:\n`
     section += `  - Status: ${activeSessionAnalysis.status.toUpperCase()}\n`
@@ -371,7 +759,11 @@ export function formatStudyPatternForPrompt(analysis: StudyPatternAnalysis): str
 1. PAUSE FREQUENCY DIAGNOSIS: If the student takes too many pauses (>= 3 per session or risk HIGH), explicitly address focus stamina. Ask what causes the pauses (phone distractions, boredom, hard problems) and recommend the 5-minute immersion rule or setting phones outside the room.
 2. TIMING & CHRONOTYPE COACHING: Note when they start studying (e.g. late night vs morning). If they start late and pause often, note how sleep/circadian rhythm impacts analytical problem-solving.
 3. STARTUP RESISTANCE AWARENESS: If early pauses (< 15 mins into session) are frequent, coach them on lowering activation energy for the first 10 minutes.
-4. If the student asks how they are studying or about their focus pattern, give specific data-driven feedback referencing their real start times, pause count, and session completion.`
+4. TIME-OF-DAY LAG COACHING: If the student asks about lagging at a specific time (e.g. afternoon or late night) or why they pause frequently:
+   - For afternoon lag: Explain postprandial circadian dip + ambient noise. Advise 25m Pomodoros, active PYQ problem-solving instead of videos, and a 10m outdoor daylight walk.
+   - For night lag: Explain sleep pressure and depleted willpower. Advise a 11:30 PM cutoff and shifting hard problem-solving to earlier in the day.
+   - For morning lag: Explain warmup hesitation. Advise the 5-minute immersion rule and keeping phones outside the room.
+5. If the student asks how they are studying or about their focus pattern, give specific data-driven feedback referencing their real start times, pause count, and session completion.`
 
   return section
 }
