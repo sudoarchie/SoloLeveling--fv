@@ -32,6 +32,14 @@ export interface RankInfo {
   minWeeklyHours: number
   /** Daily average study time in hours required over the week */
   minDailyAvgHours: number
+  /** GATE Marks Predictor: minimum expected marks (0 to 100 scale) */
+  gateMarksMin: number
+  /** GATE Marks Predictor: maximum expected marks (0 to 100 scale) */
+  gateMarksMax: number
+  /** Predicted All India Rank (AIR) band */
+  predictedAir: string
+  /** Target opportunities / institutions for this mark band */
+  collegeProspects: string
   description: string
   quote: string
 }
@@ -46,6 +54,10 @@ export const RANKS: RankInfo[] = [
     maxExp: 500,
     minWeeklyHours: 0,
     minDailyAvgHours: 0,
+    gateMarksMin: 0,
+    gateMarksMax: 25,
+    predictedAir: "Below Cutoff (Unranked)",
+    collegeProspects: "Foundational phase • Build core concepts & syllabus stamina",
     description: "Every Monarch started as the weakest hunter. Begin your awakening.",
     quote: "I am an E-Rank hunter. But I will not stay weak.",
   },
@@ -58,6 +70,10 @@ export const RANKS: RankInfo[] = [
     maxExp: 1500,
     minWeeklyHours: 10.5,
     minDailyAvgHours: 1.5,
+    gateMarksMin: 25,
+    gateMarksMax: 32,
+    predictedAir: "AIR 15,000 – 30,000",
+    collegeProspects: "Borderline Qualifying Cutoff (~25 to 28 marks threshold)",
     description: "Building foundational stamina with 1.5h daily consistent study sessions.",
     quote: "Surviving the double dungeon requires focus, endurance, and persistence.",
   },
@@ -70,6 +86,10 @@ export const RANKS: RankInfo[] = [
     maxExp: 3000,
     minWeeklyHours: 21.0,
     minDailyAvgHours: 3.0,
+    gateMarksMin: 32,
+    gateMarksMax: 40,
+    predictedAir: "AIR 7,000 – 15,000",
+    collegeProspects: "GATE Qualified! Margin above general cutoff • State Engineering Colleges",
     description: "Solid conceptual command and steady 3h daily double-digit weekly hours.",
     quote: "The mana coursing through you is now undeniable. Keep attacking weaknesses.",
   },
@@ -82,6 +102,10 @@ export const RANKS: RankInfo[] = [
     maxExp: 5000,
     minWeeklyHours: 31.5,
     minDailyAvgHours: 4.5,
+    gateMarksMin: 40,
+    gateMarksMax: 50,
+    predictedAir: "AIR 3,000 – 7,000",
+    collegeProspects: "NITs, IIITs (Allahabad/Bangalore), State Top Engineering Institutions",
     description: "Disciplined study routine holding firm at 4.5h daily across major subjects.",
     quote: "You are no longer ordinary. The gates yield to your daily discipline.",
   },
@@ -94,6 +118,10 @@ export const RANKS: RankInfo[] = [
     maxExp: 7500,
     minWeeklyHours: 42.0,
     minDailyAvgHours: 6.0,
+    gateMarksMin: 50,
+    gateMarksMax: 60,
+    predictedAir: "AIR 1,000 – 3,000",
+    collegeProspects: "Top NITs (Trichy/Surathkal/Warangal), Newer IITs, BITS Pilani M.Tech",
     description: "Deep conceptual command and elite 6h daily endurance under pressure.",
     quote: "A-Rank presence. The Association takes notice of your relentless grind.",
   },
@@ -106,6 +134,10 @@ export const RANKS: RankInfo[] = [
     maxExp: 11000,
     minWeeklyHours: 56.0,
     minDailyAvgHours: 8.0,
+    gateMarksMin: 60,
+    gateMarksMax: 70,
+    predictedAir: "AIR 300 – 1,000",
+    collegeProspects: "Old IITs (Roorkee/Guwahati/KGP), Top NITs, IIIT Hyderabad",
     description: "Commanding 8-hour daily stamina. Ascending beyond ordinary hunters into sovereign preparation authority.",
     quote: "The system chose you for a reason. Command your focus like an army.",
   },
@@ -118,6 +150,10 @@ export const RANKS: RankInfo[] = [
     maxExp: 16000,
     minWeeklyHours: 70.0,
     minDailyAvgHours: 10.0,
+    gateMarksMin: 70,
+    gateMarksMax: 80,
+    predictedAir: "AIR 50 – 300",
+    collegeProspects: "Top 5 Old IITs (Bombay/Delhi/Madras/Kanpur) Direct M.Tech & PSU Shortlist",
     description: "Legendary 10-hour daily output ranking among the top elite percentile nationwide.",
     quote: "At this summit, few can match your weekly stamina and conceptual depth.",
   },
@@ -130,6 +166,10 @@ export const RANKS: RankInfo[] = [
     maxExp: 25000,
     minWeeklyHours: 84.0,
     minDailyAvgHours: 12.0,
+    gateMarksMin: 80,
+    gateMarksMax: 100,
+    predictedAir: "AIR 1 – 50 (All-India Topper)",
+    collegeProspects: "Guaranteed IISc Bangalore CSA, IIT Bombay CS, Maharatna PSU (ONGC/IOCL) Top Ranker",
     description: "Absolute 12-hour daily mastery over GATE preparation. Arise and conquer.",
     quote: "ARISE. The Monarch of preparation bows to no question paper.",
   },
@@ -305,4 +345,56 @@ export function isThemeUnlocked(
   _unlockedCosmetics: string[] = [],
 ): boolean {
   return true
+}
+
+/**
+ * Returns GATE Marks Predictor details for a specific rank.
+ */
+export function getRankGateMarks(rankName: RankName) {
+  const rank = RANKS.find((r) => r.name === rankName) || RANKS[0]
+  return {
+    rank: rank.name,
+    minMarks: rank.gateMarksMin,
+    maxMarks: rank.gateMarksMax,
+    predictedAir: rank.predictedAir,
+    collegeProspects: rank.collegeProspects,
+  }
+}
+
+/**
+ * Computes an estimated base GATE score (0-100) from EXP and weekly consistency.
+ * SSS: 80 - 100 marks
+ * SS:  70 - 80 marks
+ * S:   60 - 70 marks
+ * A:   50 - 60 marks
+ * B:   40 - 50 marks
+ * C:   32 - 40 marks
+ * D:   25 - 32 marks
+ * E:    0 - 25 marks
+ */
+export function predictBaseGateScore(exp: number, weeklyHours: number): {
+  predictedScore: number
+  scoreMin: number
+  scoreMax: number
+  rank: RankInfo
+  airBand: string
+  prospects: string
+} {
+  const currentRank = getRank(exp, weeklyHours)
+  const nextRank = getNextRank(currentRank.name)
+  const progressDetails = getRankProgressDetails(exp, weeklyHours, currentRank, nextRank)
+
+  const span = currentRank.gateMarksMax - currentRank.gateMarksMin
+  const fractional = (progressDetails.overallProgress / 100) * span
+  const rawScore = currentRank.gateMarksMin + fractional
+  const predictedScore = Number(Math.min(100, Math.max(0, rawScore)).toFixed(1))
+
+  return {
+    predictedScore,
+    scoreMin: currentRank.gateMarksMin,
+    scoreMax: currentRank.gateMarksMax,
+    rank: currentRank,
+    airBand: currentRank.predictedAir,
+    prospects: currentRank.collegeProspects,
+  }
 }

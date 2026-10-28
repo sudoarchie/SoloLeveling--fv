@@ -37,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { toast } from "sonner"
 import { usePomodoro, type PomodoroPreset, type FocusType } from "@/hooks/usePomodoro"
 import { useSpacedRepetition } from "@/hooks/useSpacedRepetition"
 import { useUserData } from "@/hooks/useUserData"
@@ -108,8 +109,11 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
     todayFocusMinutes,
     todayExpEarned,
     startedAt,
+    lastPausedAt,
     pauseCount,
     totalPausedSeconds,
+    pauseDescription,
+    setPauseDescription,
     startTimer,
     resumeTimer,
     pauseTimer,
@@ -502,6 +506,57 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
               />
             </div>
 
+            {/* Pause Description / Activity Input Card (Active when Paused) */}
+            {isPaused && (
+              <div className="w-full max-w-md mt-5 p-4 rounded-xl border border-amber-500/30 bg-amber-500/5 text-left space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="pomodoro-pause-reason" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <Coffee className="h-3.5 w-3.5 text-amber-500" />
+                    <span>What did you do during this pause?</span>
+                  </label>
+                  <span className="text-[10px] font-mono text-amber-500 flex items-center gap-1">
+                    <Sparkles className="h-3 w-3" />
+                    AI Tracking Active
+                  </span>
+                </div>
+
+                <Input
+                  id="pomodoro-pause-reason"
+                  value={pauseDescription}
+                  onChange={(e) => setPauseDescription(e.target.value)}
+                  placeholder="e.g. Drank water & stretched, quick phone check, restroom break, snack..."
+                  className="h-9 text-xs bg-background/90 border-amber-500/30 focus-visible:ring-amber-500/40"
+                />
+
+                {/* Quick Pause Activity Tags */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
+                  <span className="text-[10px] text-muted-foreground">Quick tag:</span>
+                  {[
+                    "💧 Water & Hydration",
+                    "🚶 Walk / Stretch",
+                    "🚽 Restroom Break",
+                    "☕ Coffee / Tea",
+                    "🍎 Snack / Meal",
+                    "📱 Phone / Messages",
+                    "👀 Eye Rest & Breathe",
+                    "❓ Checked Doubt / Formula",
+                  ].map((chip) => (
+                    <Badge
+                      key={chip}
+                      variant={pauseDescription === chip ? "default" : "outline"}
+                      className="cursor-pointer text-[10px] py-0 px-2 h-5 font-normal transition-colors"
+                      onClick={() => setPauseDescription(chip)}
+                    >
+                      {chip}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground leading-tight">
+                  Your AI Mentor reads this pause log to diagnose distraction triggers vs healthy recovery breaks.
+                </p>
+              </div>
+            )}
+
             {/* Main Action Buttons */}
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               {!isRunning && !isPaused && (
@@ -520,7 +575,7 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
                   <Button
                     size="lg"
                     variant="outline"
-                    onClick={pauseTimer}
+                    onClick={() => pauseTimer()}
                     className="h-11 px-6 text-sm font-semibold gap-2"
                   >
                     <Pause className="h-4 w-4" />
@@ -550,7 +605,14 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
                 <>
                   <Button
                     size="lg"
-                    onClick={resumeTimer}
+                    onClick={() => {
+                      resumeTimer()
+                      if (pauseDescription.trim()) {
+                        toast.success("Focus Resumed", {
+                          description: `Pause activity logged for AI: "${pauseDescription.trim()}"`,
+                        })
+                      }
+                    }}
                     className="h-11 px-7 text-sm font-semibold gap-2 shadow-md hover:scale-[1.02] transition-transform"
                   >
                     <Play className="h-4 w-4 fill-current" />
@@ -686,6 +748,9 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
                         {s.pauseCount !== undefined && (
                           <span className="ml-1 text-muted-foreground">
                             • {s.pauseCount === 0 ? "0 pauses (pure flow)" : `${s.pauseCount} pause${s.pauseCount > 1 ? "s" : ""}${s.totalPausedSeconds ? ` (${Math.round(s.totalPausedSeconds / 60)}m)` : ""}`}
+                            {s.lastPauseDescription && (
+                              <span className="text-amber-500 font-normal"> · &ldquo;{s.lastPauseDescription}&rdquo;</span>
+                            )}
                           </span>
                         )}
                       </p>

@@ -90,6 +90,13 @@ const promptStarters = [
       "What should I prioritize today? Formulate an actionable plan based on my overdue topics and recent pace.",
   },
   {
+    icon: Target,
+    title: "GATE marks & derivative predictor",
+    desc: "Calculate predicted GATE marks (SSS: 80-100) and improvement velocity (dM/dt).",
+    prompt:
+      "Predict my current GATE marks based on my preparation telemetry and rank. What is my improvement velocity (dM/dt), acceleration (d²M/dt²), and how can I reach SSS Rank (80-100 marks / AIR < 50)?",
+  },
+  {
     icon: Pause,
     title: "Study pattern & pause audit",
     desc: "Evaluate your focus timer habits, pause frequency, and start timings.",
@@ -121,6 +128,7 @@ export function AIMentor({ prefillPrompt }: AIMentorProps) {
     description: pomodoroDesc,
     timeLeft: pomodoroTimeLeft,
     activeDurationMinutes,
+    pauseDescription,
     getActiveContextForAI,
   } = usePomodoro()
 
@@ -345,13 +353,20 @@ export function AIMentor({ prefillPrompt }: AIMentorProps) {
                       <p className="font-semibold text-foreground flex items-center gap-1.5">
                         Active Focus Task: &ldquo;{pomodoroDesc || `${activeDurationMinutes}m block`}&rdquo;
                         {pomodoroStatus === "running" && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.2 text-[10px] text-emerald-500">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.2 text-[10px] text-emerald-500 font-mono">
                             {Math.floor(pomodoroTimeLeft / 60)}m left
+                          </span>
+                        )}
+                        {pomodoroStatus === "paused" && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-500 font-mono border border-amber-500/20">
+                            PAUSED {pauseDescription ? `· "${pauseDescription}"` : ""}
                           </span>
                         )}
                       </p>
                       <p className="text-[11px] text-muted-foreground">
-                        The AI mentor knows your active focus goal and will ground its answers in this task.
+                        {pomodoroStatus === "paused" && pauseDescription
+                          ? `Pause Activity recorded: "${pauseDescription}". AI mentor evaluates this break context.`
+                          : "The AI mentor knows your active focus goal and will ground its answers in this task."}
                       </p>
                     </div>
                   </div>
@@ -360,12 +375,14 @@ export function AIMentor({ prefillPrompt }: AIMentorProps) {
                     variant="outline"
                     onClick={() =>
                       handleSend(
-                        `I am currently working on: "${pomodoroDesc || 'Deep study block'}". Give me 3 high-yield focus traps and 2 active recall diagnostic questions for this session.`,
+                        pomodoroStatus === "paused" && pauseDescription
+                          ? `I've paused my focus session ("${pomodoroDesc || 'study'}") to: "${pauseDescription}". How does this break activity affect my cognitive stamina and focus rhythm?`
+                          : `I am currently working on: "${pomodoroDesc || 'Deep study block'}". Give me 3 high-yield focus traps and 2 active recall diagnostic questions for this session.`,
                       )
                     }
                     className="h-7 text-xs text-primary border-primary/30 hover:bg-primary/10 shrink-0"
                   >
-                    <span>Test me on this task</span>
+                    <span>{pomodoroStatus === "paused" && pauseDescription ? "Evaluate this pause" : "Test me on this task"}</span>
                     <ArrowRight className="h-3 w-3 ml-1" />
                   </Button>
                 </div>
@@ -698,6 +715,11 @@ export function AIMentor({ prefillPrompt }: AIMentorProps) {
               {pomodoroStatus === "running" && (
                 <span className="text-muted-foreground font-mono">
                   ({Math.floor(pomodoroTimeLeft / 60)}m left)
+                </span>
+              )}
+              {pomodoroStatus === "paused" && (
+                <span className="text-amber-500 font-mono">
+                  (Paused{pauseDescription ? `: "${pauseDescription}"` : ""})
                 </span>
               )}
             </div>

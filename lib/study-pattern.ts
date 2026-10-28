@@ -11,6 +11,7 @@ export interface TimerEvent {
   pauseDurationSeconds?: number
   elapsedSeconds?: number
   note?: string
+  pauseDescription?: string
 }
 
 export type FocusType = "lecture" | "practice" | "revision" | "mock_test" | "other"
@@ -86,6 +87,8 @@ export interface PomodoroSessionData {
   pauseCount?: number
   total_paused_seconds?: number
   totalPausedSeconds?: number
+  last_pause_description?: string
+  lastPauseDescription?: string
   actual_focus_seconds?: number
   actualFocusSeconds?: number
   events?: TimerEvent[]

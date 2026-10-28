@@ -131,6 +131,26 @@ export default function RankUpgradeModal({
             </div>
           </div>
 
+          {/* GATE Marks Predictor Tier */}
+          <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 flex items-center justify-between text-xs">
+            <div>
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                Predicted GATE Marks Band
+              </p>
+              <p className="font-mono text-sm font-bold text-foreground">
+                {newRank.gateMarksMin} – {newRank.gateMarksMax} Marks
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="font-mono text-xs text-primary font-semibold">
+                {newRank.predictedAir}
+              </p>
+              <p className="text-[10px] text-muted-foreground truncate max-w-[180px]">
+                {newRank.collegeProspects.split(" • ")[0]}
+              </p>
+            </div>
+          </div>
+
           {/* Action button */}
           <Button
             size="lg"

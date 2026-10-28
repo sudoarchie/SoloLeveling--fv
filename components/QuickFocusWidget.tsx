@@ -50,6 +50,8 @@ export function QuickFocusWidget({
     activeDurationMinutes,
     startedAt,
     pauseCount,
+    pauseDescription,
+    setPauseDescription,
     startTimer,
     resumeTimer,
     pauseTimer,
@@ -143,7 +145,7 @@ export function QuickFocusWidget({
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={pauseTimer}
+                    onClick={() => pauseTimer()}
                     className="h-8 text-xs gap-1.5"
                   >
                     <Pause className="h-3.5 w-3.5" />
@@ -189,6 +191,18 @@ export function QuickFocusWidget({
                 style={{ width: `${progressPct}%` }}
               />
             </div>
+
+            {/* If Paused: Quick activity log for AI */}
+            {isPaused && (
+              <div className="flex items-center gap-2 pt-0.5 animate-in fade-in duration-200">
+                <Input
+                  value={pauseDescription}
+                  onChange={(e) => setPauseDescription(e.target.value)}
+                  placeholder="What are you doing during this pause? (Logged for AI mentor)"
+                  className="h-7 text-xs bg-background/90 border-amber-500/30 text-foreground"
+                />
+              </div>
+            )}
           </div>
         ) : (
           // Idle state - quick starter

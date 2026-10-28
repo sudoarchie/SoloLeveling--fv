@@ -4,20 +4,16 @@ import { useState, useMemo } from "react"
 import {
   Clock,
   AlertTriangle,
-  Sparkles,
   Sun,
   SunMedium,
   Sunset,
   Moon,
   Timer,
   ArrowRight,
-  ShieldAlert,
   Volume2,
   Brain,
-  Coffee,
   CheckCircle2,
-  TrendingDown,
-  Layers,
+  Sparkles,
 } from "lucide-react"
 import {
   BarChart,
@@ -26,13 +22,24 @@ import {
   YAxis,
   CartesianGrid,
   Cell,
-  Tooltip,
-  ResponsiveContainer,
 } from "recharts"
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import type {
   StudyPatternAnalysis,
   TimeWindowKey,
@@ -46,14 +53,16 @@ export interface PauseTimeAnalysisProps {
   className?: string
 }
 
-const WINDOW_COLORS: Record<TimeWindowKey, { base: string; highlight: string; label: string }> = {
-  morning: { base: "#F59E0B", highlight: "#D97706", label: "Morning" },
-  afternoon: { base: "#3B82F6", highlight: "#2563EB", label: "Afternoon" },
-  evening: { base: "#8B5CF6", highlight: "#7C3AED", label: "Evening" },
-  night: { base: "#6366F1", highlight: "#4F46E5", label: "Late Night" },
+const pauseChartConfig: ChartConfig = {
+  pauses: {
+    label: "Pause Count",
+    color: "hsl(var(--primary))",
+  },
+  minutes: {
+    label: "Time Lost (min)",
+    color: "hsl(var(--destructive))",
+  },
 }
-
-const PEAK_LAG_COLOR = "#EF4444" // Crimson red/rose for the peak lagging window
 
 export function PauseTimeAnalysis({
   analysis,
@@ -68,14 +77,14 @@ export function PauseTimeAnalysis({
   const totalPausedMinutes = pausePatterns?.totalPausedMinutes ?? 0
   const peakLag = pausePatterns?.peakLagWindow
 
-  // Window data array formatted for Recharts
+  // Window data formatted for Recharts
   const windowChartData = useMemo(() => {
     if (!pausePatterns?.timeBreakdown) {
       return [
-        { window: "morning", name: "Morning", hours: "05:00 - 11:59", pauses: 0, minutes: 0, isPeakLag: false, sessions: 0, avgPauses: 0, pct: 0, fill: WINDOW_COLORS.morning.base },
-        { window: "afternoon", name: "Afternoon", hours: "12:00 - 16:59", pauses: 0, minutes: 0, isPeakLag: false, sessions: 0, avgPauses: 0, pct: 0, fill: WINDOW_COLORS.afternoon.base },
-        { window: "evening", name: "Evening", hours: "17:00 - 20:59", pauses: 0, minutes: 0, isPeakLag: false, sessions: 0, avgPauses: 0, pct: 0, fill: WINDOW_COLORS.evening.base },
-        { window: "night", name: "Late Night", hours: "21:00 - 04:59", pauses: 0, minutes: 0, isPeakLag: false, sessions: 0, avgPauses: 0, pct: 0, fill: WINDOW_COLORS.night.base },
+        { window: "morning", name: "Morning", hours: "05:00 - 11:59", pauses: 0, minutes: 0, isPeakLag: false, sessions: 0, avgPauses: 0, pct: 0 },
+        { window: "afternoon", name: "Afternoon", hours: "12:00 - 16:59", pauses: 0, minutes: 0, isPeakLag: false, sessions: 0, avgPauses: 0, pct: 0 },
+        { window: "evening", name: "Evening", hours: "17:00 - 20:59", pauses: 0, minutes: 0, isPeakLag: false, sessions: 0, avgPauses: 0, pct: 0 },
+        { window: "night", name: "Late Night", hours: "21:00 - 04:59", pauses: 0, minutes: 0, isPeakLag: false, sessions: 0, avgPauses: 0, pct: 0 },
       ]
     }
 
@@ -95,24 +104,22 @@ export function PauseTimeAnalysis({
         sessions: d.sessionCount,
         avgPauses: d.avgPausesPerSession,
         pct: d.percentageOfTotalPauses,
-        fill: isPeak ? PEAK_LAG_COLOR : WINDOW_COLORS[key].base,
       }
     })
   }, [pausePatterns, totalPauses])
 
-  // Hourly data array formatted for Recharts
+  // Hourly data formatted for Recharts
   const hourlyChartData = useMemo(() => {
     if (!pausePatterns?.hourlyBreakdown) return []
     return pausePatterns.hourlyBreakdown.map((h: HourlyPauseBreakdown) => {
       const isWindowPeak = peakLag && peakLag.window !== "none" && h.window === peakLag.window && h.pauses > 0
       return {
         hour: h.hour,
-        label: h.label,
+        name: h.label,
         window: h.window,
         pauses: h.pauses,
         minutes: h.totalPausedMinutes,
         isPeakLag: isWindowPeak,
-        fill: isWindowPeak ? PEAK_LAG_COLOR : WINDOW_COLORS[h.window].base,
       }
     })
   }, [pausePatterns, peakLag])
@@ -120,39 +127,32 @@ export function PauseTimeAnalysis({
   const currentChartData = viewMode === "windows" ? windowChartData : hourlyChartData
 
   return (
-    <Card className={`border-border bg-card shadow-sm ${className}`}>
-      <CardHeader className="pb-3 border-b border-border/50">
+    <Card className={`border-border bg-card ${className}`}>
+      <CardHeader className="pb-3 border-b">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-primary" />
               <CardTitle className="text-base font-semibold">
-                Pause Distribution & Lagging Time Diagnostic
+                Pause Distribution & Fatigue Analysis
               </CardTitle>
             </div>
             <CardDescription className="text-xs">
-              Telemetry of when pauses happen to reveal external disturbances vs distracted fatigue slumps
+              Diagnostics on when pauses occur to identify external disruptions vs midday fatigue dips.
             </CardDescription>
           </div>
 
-          {/* Peak Lag Window Badge */}
           <div className="flex items-center gap-2">
             {totalPauses > 0 && peakLag && peakLag.window !== "none" ? (
-              <Badge
-                variant="outline"
-                className="font-mono text-xs border-amber-500/50 text-amber-500 bg-amber-500/10 flex items-center gap-1.5 py-1 px-2.5"
-              >
-                <AlertTriangle className="h-3 w-3" />
+              <Badge variant="outline" className="font-mono text-xs gap-1.5 py-1">
+                <AlertTriangle className="h-3 w-3 text-amber-500" />
                 <span>
-                  Peak Lag: <strong className="font-semibold text-foreground">{peakLag.label}</strong> ({peakLag.percentageOfTotalPauses}% of pauses)
+                  Peak Lag: <strong className="font-semibold">{peakLag.label}</strong> ({peakLag.percentageOfTotalPauses}% of pauses)
                 </span>
               </Badge>
             ) : (
-              <Badge
-                variant="outline"
-                className="font-mono text-xs border-emerald-500/50 text-emerald-500 bg-emerald-500/10 flex items-center gap-1.5 py-1 px-2.5"
-              >
-                <CheckCircle2 className="h-3 w-3" />
+              <Badge variant="secondary" className="font-mono text-xs gap-1.5 py-1">
+                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
                 <span>Zero Interruption Flow</span>
               </Badge>
             )}
@@ -161,148 +161,84 @@ export function PauseTimeAnalysis({
 
         {/* View & Metric Controls */}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-2">
-          {/* View Toggle */}
-          <div className="flex items-center rounded-md border border-border p-0.5 bg-muted/20 text-xs">
-            <button
-              onClick={() => setViewMode("windows")}
-              className={`px-2.5 py-1 rounded transition-colors ${
-                viewMode === "windows"
-                  ? "bg-background text-foreground font-medium shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Time Windows (4 Blocks)
-            </button>
-            <button
-              onClick={() => setViewMode("hourly")}
-              className={`px-2.5 py-1 rounded transition-colors ${
-                viewMode === "hourly"
-                  ? "bg-background text-foreground font-medium shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              24-Hour Timeline
-            </button>
-          </div>
+          <Tabs value={viewMode} onValueChange={(val: any) => setViewMode(val)}>
+            <TabsList className="h-8">
+              <TabsTrigger value="windows" className="text-xs h-7">
+                4 Time Windows
+              </TabsTrigger>
+              <TabsTrigger value="hourly" className="text-xs h-7">
+                24-Hour Timeline
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
 
-          {/* Metric Toggle */}
-          <div className="flex items-center rounded-md border border-border p-0.5 bg-muted/20 text-xs">
-            <button
-              onClick={() => setMetric("pauses")}
-              className={`px-2.5 py-1 rounded transition-colors ${
-                metric === "pauses"
-                  ? "bg-primary text-primary-foreground font-medium shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Pause Count
-            </button>
-            <button
-              onClick={() => setMetric("minutes")}
-              className={`px-2.5 py-1 rounded transition-colors ${
-                metric === "minutes"
-                  ? "bg-primary text-primary-foreground font-medium shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Minutes Lost
-            </button>
-          </div>
+          <Tabs value={metric} onValueChange={(val: any) => setMetric(val)}>
+            <TabsList className="h-8">
+              <TabsTrigger value="pauses" className="text-xs h-7">
+                Pause Count
+              </TabsTrigger>
+              <TabsTrigger value="minutes" className="text-xs h-7">
+                Minutes Lost
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
       </CardHeader>
 
       <CardContent className="pt-4 space-y-6">
-        {/* ── Main Bar Chart ── */}
+        {/* Main Chart with Shadcn ChartContainer */}
         <div className="w-full">
-          <div className="h-[240px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={currentChartData}
-                margin={{ left: -15, right: 10, top: 10, bottom: 0 }}
+          <ChartContainer config={pauseChartConfig} className="h-[240px] w-full">
+            <BarChart
+              data={currentChartData}
+              margin={{ left: -15, right: 10, top: 10, bottom: 0 }}
+            >
+              <CartesianGrid vertical={false} strokeDasharray="3 3" />
+              <XAxis
+                dataKey="name"
+                axisLine={false}
+                tickLine={false}
+                fontSize={11}
+                interval={viewMode === "windows" ? 0 : 2}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                fontSize={11}
+                allowDecimals={false}
+              />
+              <ChartTooltip content={<ChartTooltipContent />} />
+              <Bar
+                dataKey={metric}
+                radius={[4, 4, 0, 0]}
+                maxBarSize={viewMode === "windows" ? 56 : 18}
               >
-                <CartesianGrid vertical={false} strokeDasharray="3 3" opacity={0.25} />
-                <XAxis
-                  dataKey={viewMode === "windows" ? "name" : "label"}
-                  axisLine={false}
-                  tickLine={false}
-                  fontSize={11}
-                  interval={viewMode === "windows" ? 0 : 2}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  fontSize={11}
-                  allowDecimals={false}
-                />
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (!active || !payload || !payload.length) return null
-                    const data = payload[0].payload
-                    return (
-                      <div className="rounded-lg border border-border bg-popover/95 backdrop-blur-sm p-3 shadow-md text-xs space-y-1.5 min-w-[190px]">
-                        <div className="flex items-center justify-between border-b pb-1">
-                          <p className="font-semibold text-foreground flex items-center gap-1.5">
-                            {data.name || data.label}
-                            {data.hours && (
-                              <span className="text-[10px] text-muted-foreground font-normal">
-                                ({data.hours})
-                              </span>
-                            )}
-                          </p>
-                          {data.isPeakLag && (
-                            <Badge variant="destructive" className="text-[9px] px-1.5 py-0 h-4">
-                              Lag Peak
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center justify-between text-muted-foreground">
-                          <span>Pauses Taken:</span>
-                          <span className="font-mono font-bold text-foreground">
-                            {data.pauses} {data.pct !== undefined ? `(${data.pct}%)` : ""}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-muted-foreground">
-                          <span>Time Lost:</span>
-                          <span className="font-mono font-bold text-amber-500">
-                            {data.minutes}m
-                          </span>
-                        </div>
-                        {data.sessions !== undefined && data.sessions > 0 && (
-                          <div className="flex items-center justify-between text-muted-foreground pt-1 border-t text-[11px]">
-                            <span>Avg per block:</span>
-                            <span className="font-mono font-medium text-foreground">
-                              {data.avgPauses} pauses/sess
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  }}
-                />
-                <Bar
-                  dataKey={metric}
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={viewMode === "windows" ? 64 : 18}
-                >
-                  {currentChartData.map((entry, idx) => (
-                    <Cell key={`cell-${idx}`} fill={entry.fill} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-2 px-1">
+                {currentChartData.map((entry, idx) => (
+                  <Cell
+                    key={`cell-${idx}`}
+                    fill={
+                      entry.isPeakLag
+                        ? "hsl(var(--destructive))"
+                        : "hsl(var(--primary))"
+                    }
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ChartContainer>
+
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-2 border-t pt-2">
             <span className="flex items-center gap-1.5">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#EF4444]" />
-              Red / Coral = Identified Peak Lag Window
+              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-destructive" />
+              Highlighted = Identified Peak Lag Window
             </span>
             <span>
-              Total Lost to Pauses: <strong className="text-foreground font-mono">{totalPausedMinutes}m</strong> across {totalPauses} pauses
+              Total Lost to Pauses: <strong className="text-foreground font-mono">{totalPausedMinutes}m</strong> ({totalPauses} pauses)
             </span>
           </div>
         </div>
 
-        {/* ── 4 Circadian Window Metric Cards ── */}
+        {/* 4 Time Window Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {windowChartData.map((item) => {
             const isLag = item.isPeakLag
@@ -318,28 +254,24 @@ export function PauseTimeAnalysis({
               )
 
             return (
-              <div
+              <Card
                 key={item.window}
-                className={`rounded-lg border p-3 transition-all ${
-                  isLag
-                    ? "border-amber-500/40 bg-amber-500/5 ring-1 ring-amber-500/20"
-                    : "border-border/60 bg-muted/10 hover:bg-muted/20"
-                }`}
+                className={`p-3 ${isLag ? "border-destructive/40 bg-destructive/5" : "bg-muted/20"}`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold">
                     {icon}
                     {item.name}
                   </span>
                   {isLag && (
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-amber-500 bg-amber-500/15 px-1.5 py-0.5 rounded">
+                    <Badge variant="destructive" className="text-[9px] py-0 px-1.5 h-4">
                       Lagging
-                    </span>
+                    </Badge>
                   )}
                   {!isLag && item.pauses === 0 && (
-                    <span className="text-[9px] font-medium text-emerald-500 bg-emerald-500/10 px-1 py-0.5 rounded">
+                    <Badge variant="outline" className="text-[9px] py-0 px-1 text-emerald-500 border-emerald-500/40">
                       Flow
-                    </span>
+                    </Badge>
                   )}
                 </div>
                 <p className="text-[10px] text-muted-foreground mt-0.5">{item.hours}</p>
@@ -351,7 +283,7 @@ export function PauseTimeAnalysis({
                     </span>
                     <span className="text-[11px] text-muted-foreground ml-1">pauses</span>
                   </div>
-                  <span className="text-xs font-mono font-medium text-amber-500">
+                  <span className="text-xs font-mono font-medium text-destructive">
                     {item.minutes}m lost
                   </span>
                 </div>
@@ -360,137 +292,112 @@ export function PauseTimeAnalysis({
                   <span>{item.sessions} session{item.sessions !== 1 ? "s" : ""}</span>
                   <span>{item.pct}% share</span>
                 </div>
-              </div>
+              </Card>
             )
           })}
         </div>
 
-        {/* ── Diagnostic & Root Cause Deep Dive ── */}
+        {/* Diagnostic Insights & Tactical Solutions */}
         {peakLag && peakLag.window !== "none" && totalPauses > 0 ? (
-          <div className="rounded-xl border border-border/70 bg-gradient-to-br from-card to-muted/20 p-4 sm:p-5 space-y-4">
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b border-border/60 pb-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-md bg-amber-500/15 text-amber-500">
-                    <AlertTriangle className="h-4 w-4" />
+          <Card className="border-border bg-muted/10">
+            <CardHeader className="pb-3 border-b">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                    <CardTitle className="text-sm font-semibold">
+                      Lag Pattern Identified: {peakLag.label} Window ({peakLag.timeRange})
+                    </CardTitle>
                   </div>
-                  <h4 className="text-sm font-semibold text-foreground">
-                    Lag Detected in the {peakLag.label} Window ({peakLag.timeRange})
-                  </h4>
+                  <CardDescription className="text-xs">
+                    {peakLag.rootCauseAnalysis}
+                  </CardDescription>
                 </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  {peakLag.rootCauseAnalysis}
-                </p>
+                <Badge variant="outline" className="font-mono text-xs self-start sm:self-auto">
+                  {peakLag.pauseCount} pauses · {peakLag.totalPausedMinutes}m lost
+                </Badge>
+              </div>
+            </CardHeader>
+
+            <CardContent className="pt-4 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Card className="p-3.5 bg-background">
+                  <div className="flex items-center gap-2 text-xs font-semibold">
+                    <Volume2 className="h-3.5 w-3.5 text-blue-500" />
+                    External Disturbance Triggers
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    {peakLag.disturbanceSummary}
+                  </p>
+                </Card>
+
+                <Card className="p-3.5 bg-background">
+                  <div className="flex items-center gap-2 text-xs font-semibold">
+                    <Brain className="h-3.5 w-3.5 text-purple-500" />
+                    Circadian Dip & Fatigue State
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    {peakLag.distractedStateSummary}
+                  </p>
+                </Card>
               </div>
 
-              <div className="flex flex-wrap sm:flex-col items-end gap-1.5 shrink-0">
-                <span className="text-[11px] text-muted-foreground">Interruption Weight:</span>
-                <span className="text-sm font-bold font-mono text-amber-500">
-                  {peakLag.pauseCount} pauses ({peakLag.totalPausedMinutes}m lost)
-                </span>
-              </div>
-            </div>
-
-            {/* External Disturbance vs Distracted State Analysis */}
-            <div className="grid gap-3 sm:grid-cols-2">
-              {/* Factor 1: External Disturbance */}
-              <div className="rounded-lg border border-border/60 p-3.5 bg-background/50 space-y-1.5">
-                <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                  <Volume2 className="h-3.5 w-3.5 text-blue-500" />
-                  External Disturbance Factors
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  Tactical Action Items
                 </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  {peakLag.disturbanceSummary}
-                </p>
-                <div className="text-[11px] text-primary/80 pt-1 flex items-center gap-1">
-                  <span>Diagnostic tip:</span>
-                  <span className="text-muted-foreground">Audible alerts, phone notifications, or roommate commotion.</span>
-                </div>
-              </div>
-
-              {/* Factor 2: Distracted Internal State */}
-              <div className="rounded-lg border border-border/60 p-3.5 bg-background/50 space-y-1.5">
-                <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                  <Brain className="h-3.5 w-3.5 text-purple-500" />
-                  Internal Fatigue & Circadian Dip
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  {peakLag.distractedStateSummary}
-                </p>
-                <div className="text-[11px] text-primary/80 pt-1 flex items-center gap-1">
-                  <span>Diagnostic tip:</span>
-                  <span className="text-muted-foreground">Post-lunch digestion, dopamine drop, or passive lecture fatigue.</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Actionable Tactical Solutions */}
-            <div className="space-y-2.5 pt-1">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                <h5 className="text-xs font-semibold uppercase tracking-wider text-foreground">
-                  Tactical Solutions to Eliminate {peakLag.label} Lag
-                </h5>
-              </div>
-
-              <div className="grid gap-2.5 sm:grid-cols-2">
-                {peakLag.actionableSolutions.map((solution, idx) => (
-                  <div
-                    key={idx}
-                    className="rounded-lg border border-border/60 p-3 bg-muted/10 hover:bg-muted/20 transition-colors space-y-1"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
-                          {idx + 1}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {peakLag.actionableSolutions.map((solution, idx) => (
+                    <Card key={idx} className="p-3 bg-background">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold flex items-center gap-1.5">
+                          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                            {idx + 1}
+                          </span>
+                          {solution.title}
                         </span>
-                        {solution.title}
-                      </span>
-                      <Badge variant="outline" className="text-[9px] uppercase px-1 py-0 h-4">
-                        {solution.type}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed pl-5">
-                      {solution.description}
-                    </p>
-                  </div>
-                ))}
+                        <Badge variant="outline" className="text-[9px] uppercase">
+                          {solution.type}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1 pl-5 leading-relaxed">
+                        {solution.description}
+                      </p>
+                    </Card>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            {/* Action prompt */}
-            {onNavigateTab && (
-              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-border/50">
-                <p className="text-xs text-muted-foreground">
-                  Put this into action right now by starting a structured, short focus sprint.
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => onNavigateTab("focus")}
-                  className="gap-2 text-xs w-full sm:w-auto"
-                >
-                  <Timer className="h-3.5 w-3.5 text-primary" />
-                  Launch 25m Focus Chamber
-                  <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                </Button>
-              </div>
-            )}
-          </div>
+              {onNavigateTab && (
+                <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t">
+                  <p className="text-xs text-muted-foreground">
+                    Overcome this lag right now with an isolated Pomodoro focus sprint.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onNavigateTab("focus")}
+                    className="gap-2 text-xs w-full sm:w-auto"
+                  >
+                    <Timer className="h-3.5 w-3.5" />
+                    Launch Focus Chamber
+                    <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         ) : (
-          /* Zero Pauses / Optimal Flow State Celebration */
-          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-center space-y-2">
+          <Card className="border-emerald-500/30 bg-emerald-500/5 p-6 text-center space-y-2">
             <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500">
               <CheckCircle2 className="h-5 w-5" />
             </div>
-            <h4 className="text-sm font-semibold text-foreground">
-              Unbroken Flow: Zero Interruption Friction
-            </h4>
+            <h4 className="text-sm font-semibold">Unbroken Focus Flow</h4>
             <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              You haven't recorded significant pauses across any time window. Your focus stamina and environment isolation are performing at an elite level. Keep your current routine locked in!
+              No significant pauses or disturbance clusters detected across any time window. Your study stamina is performing at a high level.
             </p>
-          </div>
+          </Card>
         )}
       </CardContent>
     </Card>

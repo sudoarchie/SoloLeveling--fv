@@ -13,7 +13,8 @@ import {
   getRank as getHunterRank,
   getNextRank,
   calculateWeeklyStudyStats,
-} from "@/lib/ranks"
+} from "./ranks.ts"
+import { calculateGateMarksPrediction } from "./gate-predictor.ts"
 
 // ── Base context (shared by briefing + chat) ───────────────
 
@@ -176,6 +177,15 @@ function buildBaseContext(ctx: UserContext): string {
       ? `${thisWeekExp > lastWeekExp ? "↑" : "↓"} ${Math.abs(Math.round(((thisWeekExp - lastWeekExp) / lastWeekExp) * 100))}% vs last week`
       : "Not enough data for week-over-week comparison"
 
+  const gatePrediction = calculateGateMarksPrediction({
+    dailyReports: reports,
+    mockAttempts: attempts,
+    currentExp: exp,
+    weeklyStudyStats,
+    examDate: progress?.exam_date,
+    currentRank: rank,
+  })
+
   return `You are an elite GATE exam preparation mentor, cognitive scientist, and high-performance coach embedded in the student's tracker.
 You evaluate the student through the lens of cognitive psychology and behavioral neuroscience, backed by their real preparation telemetry.
 
@@ -186,6 +196,16 @@ ${nextRank ? `• Next rank: ${nextRank.name}-Rank (Requires ${nextRank.minExp} 
 • Tracker Onboarding Timeline: Student has logged ${reports.length} days of study data (active study on ${totalDaysCompleted} days, tracked since ${earliestReportDate || "recently"}).
 • Current Study Streak: ${effectiveStreak} days active streak (longest: ${Math.max(streak?.longest_streak ?? 0, effectiveStreak)} days)
 • Streak Freezes Available: ${streak?.streak_freezes ?? 0}
+
+═══ GATE MARKS PREDICTOR & DERIVATIVE VELOCITY ═══
+• Current Predicted GATE Score: ${gatePrediction.currentMarks.toFixed(1)} / 100 (Range: ${gatePrediction.predictedRange[0]} – ${gatePrediction.predictedRange[1]} Marks)
+• Predicted GATE Standing: ${gatePrediction.currentThreshold.airRange} (${gatePrediction.currentThreshold.percentile})
+• Target Admissions Outlook: ${gatePrediction.currentThreshold.targetOutlook}
+• Improvement Velocity (dM/dt): ${gatePrediction.velocity > 0 ? "+" : ""}${gatePrediction.velocity.toFixed(2)} marks / week (${gatePrediction.momentumLabel})
+• Improvement Acceleration (d²M/dt²): ${gatePrediction.acceleration > 0 ? "+" : ""}${gatePrediction.acceleration.toFixed(2)} marks / week²
+• Projected Exam Day Score: ${gatePrediction.projectedExamMarks.toFixed(1)} / 100 (${gatePrediction.projectedRank.name}-Rank: "${gatePrediction.projectedRank.title}")
+${gatePrediction.daysToSSS !== null ? `• Time to SSS Rank (80+ Marks / AIR 1-50): ${gatePrediction.daysToSSS === 0 ? "Already reached SSS Tier (80-100 Marks)!" : `${gatePrediction.daysToSSS} days at current derivative pace`}` : ""}
+${gatePrediction.plateauRisk ? "⚠️ NOTE: Score improvement velocity has slowed below 0.6 marks/week. Student needs full-length timed tests and error analysis." : ""}
 
 ═══ LAST ${reports.length} DAYS — TELEMETRY ═══
 • Tracking Timeline: Active for ${reports.length} days (${totalDaysCompleted} study days logged)
@@ -300,7 +320,7 @@ riskLevel must be "low", "medium", or "high" based on overall exam readiness.`,
   ]
 }
 
-import { formatStudyPatternForPrompt, type StudyPatternAnalysis } from "./study-pattern"
+import { formatStudyPatternForPrompt, type StudyPatternAnalysis } from "./study-pattern.ts"
 
 // ── Chat prompt (for live conversation) ────────────────────
 
@@ -316,6 +336,12 @@ export interface PomodoroFocusContext {
   pauseCount?: number
   totalPausedSeconds?: number
   lastPausedAt?: string | null
+  currentPauseDescription?: string
+  pauseActivities?: Array<{
+    timestamp?: string
+    durationSeconds?: number
+    description: string
+  }>
   events?: any[]
   studyPattern?: StudyPatternAnalysis | null
   recentSessions?: Array<{
@@ -325,6 +351,7 @@ export interface PomodoroFocusContext {
     startedAt?: string
     pauseCount?: number
     totalPausedSeconds?: number
+    lastPauseDescription?: string
   }>
 }
 
@@ -377,6 +404,17 @@ ${todayInsight}`
 • Focus Task & Description: "${activePomodoro.description?.trim() || "Deep study block"}"
 ${activePomodoro.startedAt ? `• Session Started At: ${new Date(activePomodoro.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}
 ${activePomodoro.pauseCount !== undefined ? `• Pauses Taken in Current Session: ${activePomodoro.pauseCount} (${Math.round((activePomodoro.totalPausedSeconds || 0) / 60)}m total paused)` : ""}
+${activePomodoro.currentPauseDescription ? `• ACTIVE/LATEST PAUSE ACTIVITY: "${activePomodoro.currentPauseDescription}" (User explicitly recorded what they did during pause)` : ""}
+${
+  activePomodoro.pauseActivities && activePomodoro.pauseActivities.length > 0
+    ? `• PAUSE ACTIVITIES LOGGED IN THIS SESSION:\n${activePomodoro.pauseActivities
+        .map(
+          (p) =>
+            `  - ${p.durationSeconds && p.durationSeconds > 0 ? `${Math.round(p.durationSeconds / 60)}m break` : "Pause"}: "${p.description}"`,
+        )
+        .join("\n")}`
+    : ""
+}
 ${minsLeft !== null ? `• Time Remaining in Session: ${minsLeft}m ${secsLeft}s` : ""}
 • Focus Blocks Completed Today: ${activePomodoro.completedTodayCount ?? 0}
 ${
@@ -384,16 +422,18 @@ ${
     ? `• Other Focus Blocks Completed Today:\n${activePomodoro.recentSessions
         .map((s) => {
           const pauseInfo = s.pauseCount !== undefined ? ` • ${s.pauseCount} pause(s)` : ""
+          const pauseDesc = s.lastPauseDescription ? ` (Pause reason: "${s.lastPauseDescription}")` : ""
           const startInfo = s.startedAt ? ` (started ${new Date(s.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})` : ""
-          return `  - "${s.description}" (${s.durationMinutes}m)${startInfo}${pauseInfo}`
+          return `  - "${s.description}" (${s.durationMinutes}m)${startInfo}${pauseInfo}${pauseDesc}`
         })
         .join("\n")}`
     : ""
 }
 
 POMODORO COACHING DIRECTIVE:
-The student has explicitly entered this description for their focus session so you have a crystal-clear understanding of what they are doing at this exact time.
+The student has explicitly entered their focus session description and PAUSE descriptions so you have a crystal-clear understanding of what they are doing during focus and during pauses.
 - Contextualize your advice, explanations, question suggestions, and problem-solving tactics directly to this task.
+- Acknowledge their pause activities: if healthy (water, stretching, eye rest), encourage positive physical recovery; if a distraction trap (phone, social media, oversleeping), provide tactical cognitive fixes.
 - Help them stay sharp, prevent passive illusions of competence, and diagnose specific hurdles in this focus topic.
 - If they ask general questions, ground your answers in the topic of this active session whenever applicable.`
   }

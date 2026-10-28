@@ -68,6 +68,7 @@ import { ActivityHeatmap } from "@/components/ActivityHeatmap"
 import { MockTestInput } from "@/components/MockTestInput"
 import { StreakTracker } from "@/components/StreakTracker"
 import { PauseTimeAnalysis } from "@/components/PauseTimeAnalysis"
+import { GateMarksPredictor } from "@/components/GateMarksPredictor"
 
 export interface ProgressAnalyticsProps {
   dailyReports: DailyReport[]
@@ -146,7 +147,7 @@ export function ProgressAnalytics({
 }: ProgressAnalyticsProps) {
   // Timeframe filter state: 7, 14, or 30 days
   const [timeframe, setTimeframe] = useState<7 | 14 | 30>(7)
-  const [subTab, setSubTab] = useState<"overview" | "focus" | "mocks" | "retention">("overview")
+  const [subTab, setSubTab] = useState<"overview" | "predictor" | "focus" | "mocks" | "retention">("overview")
   const [showMockLogger, setShowMockLogger] = useState(false)
 
   // Live hooks to pull actual real-time telemetry from all modules
@@ -733,6 +734,10 @@ export function ProgressAnalytics({
               <BarChart3 className="h-4 w-4" />
               Study Velocity
             </TabsTrigger>
+            <TabsTrigger value="predictor" className="gap-1.5 text-xs sm:text-sm">
+              <Target className="h-4 w-4" />
+              GATE Score Predictor
+            </TabsTrigger>
             <TabsTrigger value="focus" className="gap-1.5 text-xs sm:text-sm">
               <Timer className="h-4 w-4" />
               Focus & Stamina
@@ -773,6 +778,40 @@ export function ProgressAnalytics({
       {/* ── TAB 1: Study Velocity & Effort Breakdown ─────────────────────── */}
       {subTab === "overview" && (
         <div className="space-y-6">
+          {/* Quick GATE Marks Predictor Teaser Card */}
+          <Card className="border-border bg-card">
+            <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0">
+                  <Target className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-foreground">
+                      GATE Marks & Score Predictor
+                    </p>
+                    <Badge variant="outline" className="font-mono text-[10px]">
+                      100-Mark Scale
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Track your score trajectory, improvement velocity, and projected exam marks.
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSubTab("predictor")}
+                className="h-8 text-xs gap-1.5 shrink-0 self-end sm:self-auto font-medium"
+              >
+                <span>View Score Predictor</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Button>
+            </CardContent>
+          </Card>
+
           {/* ── NEW: Hours & Quantity Invested by Focus Category (Lecture, Practice, Revision, Mock, Other) ── */}
           <Card className="border-border bg-card">
             <CardHeader className="pb-3 border-b bg-card/40">
@@ -1084,6 +1123,18 @@ export function ProgressAnalytics({
           {/* Activity Heatmap */}
           <ActivityHeatmap dailyReports={dailyReports} weeks={5} />
         </div>
+      )}
+
+      {/* ── TAB 1.5: GATE Marks Predictor & Derivative System ──────────── */}
+      {subTab === "predictor" && (
+        <GateMarksPredictor
+          currentExp={currentExp}
+          weeklyStudyStats={weeklyStudyStats}
+          currentRank={currentRank}
+          onOpenAIMentor={(prefill) => {
+            onNavigateTab("mentor")
+          }}
+        />
       )}
 
       {/* ── TAB 2: Focus & Stamina Diagnostics ───────────────────────────── */}

@@ -24,6 +24,7 @@ export interface PomodoroSessionRecord {
   totalPausedSeconds?: number
   actualFocusSeconds?: number
   status?: "completed" | "abandoned" | "running" | "paused"
+  lastPauseDescription?: string
   events?: TimerEvent[]
 }
 
@@ -42,6 +43,7 @@ interface StoredPomodoroState {
   pauseCount?: number
   totalPausedSeconds?: number
   lastPausedAt?: string | null
+  pauseDescription?: string
   events?: TimerEvent[]
 }
 
@@ -236,6 +238,7 @@ export function usePomodoro() {
   const [pauseCount, setPauseCount] = useState<number>(0)
   const [totalPausedSeconds, setTotalPausedSeconds] = useState<number>(0)
   const [lastPausedAt, setLastPausedAt] = useState<string | null>(null)
+  const [pauseDescription, setPauseDescriptionState] = useState<string>("")
   const [events, setEvents] = useState<TimerEvent[]>([])
 
   const stateRef = useRef({
@@ -252,6 +255,7 @@ export function usePomodoro() {
     pauseCount,
     totalPausedSeconds,
     lastPausedAt,
+    pauseDescription,
     events,
   })
 
@@ -270,6 +274,7 @@ export function usePomodoro() {
     pauseCount,
     totalPausedSeconds,
     lastPausedAt,
+    pauseDescription,
     events,
   }
 
@@ -319,6 +324,7 @@ export function usePomodoro() {
         if (typeof parsed.pauseCount === "number") setPauseCount(parsed.pauseCount)
         if (typeof parsed.totalPausedSeconds === "number") setTotalPausedSeconds(parsed.totalPausedSeconds)
         if (parsed.lastPausedAt) setLastPausedAt(parsed.lastPausedAt)
+        if (parsed.pauseDescription) setPauseDescriptionState(parsed.pauseDescription)
         if (Array.isArray(parsed.events)) setEvents(parsed.events)
 
         if (parsed.status === "running" && parsed.targetEndTime) {
@@ -531,6 +537,7 @@ export function usePomodoro() {
           if (typeof parsed.pauseCount === "number") setPauseCount(parsed.pauseCount)
           if (typeof parsed.totalPausedSeconds === "number") setTotalPausedSeconds(parsed.totalPausedSeconds)
           if (parsed.lastPausedAt !== undefined) setLastPausedAt(parsed.lastPausedAt)
+          if (parsed.pauseDescription !== undefined) setPauseDescriptionState(parsed.pauseDescription)
           if (Array.isArray(parsed.events)) setEvents(parsed.events)
 
           if (parsed.status === "running" && parsed.targetEndTime) {
@@ -567,6 +574,7 @@ export function usePomodoro() {
           if (typeof parsed.pauseCount === "number") setPauseCount(parsed.pauseCount)
           if (typeof parsed.totalPausedSeconds === "number") setTotalPausedSeconds(parsed.totalPausedSeconds)
           if (parsed.lastPausedAt !== undefined) setLastPausedAt(parsed.lastPausedAt)
+          if (parsed.pauseDescription !== undefined) setPauseDescriptionState(parsed.pauseDescription)
           if (Array.isArray(parsed.events)) setEvents(parsed.events)
 
           if (parsed.status === "running" && parsed.targetEndTime) {
@@ -614,6 +622,8 @@ export function usePomodoro() {
         totalPausedSeconds:
           patch.totalPausedSeconds !== undefined ? patch.totalPausedSeconds : current.totalPausedSeconds,
         lastPausedAt: patch.lastPausedAt !== undefined ? patch.lastPausedAt : current.lastPausedAt,
+        pauseDescription:
+          patch.pauseDescription !== undefined ? patch.pauseDescription : current.pauseDescription,
         events: patch.events !== undefined ? patch.events : current.events,
       }
 
@@ -655,6 +665,7 @@ export function usePomodoro() {
         pauseCount: current.pauseCount,
         totalPausedSeconds: current.totalPausedSeconds,
         actualFocusSeconds: actualFocusSecs,
+        lastPauseDescription: current.pauseDescription?.trim() || undefined,
         events: finalEvents,
         status: "completed",
       }
@@ -669,6 +680,7 @@ export function usePomodoro() {
       setPauseCount(0)
       setTotalPausedSeconds(0)
       setLastPausedAt(null)
+      setPauseDescriptionState("")
       setEvents([])
 
       // Award EXP in user_progress & daily_reports
@@ -896,6 +908,30 @@ export function usePomodoro() {
     }
   }, [persistState])
 
+  const setPauseDescription = useCallback(
+    (desc: string) => {
+      setPauseDescriptionState(desc)
+      const current = stateRef.current
+      current.pauseDescription = desc
+
+      // If there is a pause event, attach this description to it
+      let updatedEvents = current.events
+      for (let i = updatedEvents.length - 1; i >= 0; i--) {
+        if (updatedEvents[i].type === "pause") {
+          updatedEvents = [
+            ...updatedEvents.slice(0, i),
+            { ...updatedEvents[i], pauseDescription: desc, note: desc },
+            ...updatedEvents.slice(i + 1),
+          ]
+          break
+        }
+      }
+      setEvents(updatedEvents)
+      persistState({ pauseDescription: desc, events: updatedEvents })
+    },
+    [persistState],
+  )
+
   const resumeTimer = useCallback(async () => {
     const current = stateRef.current
     const seconds = current.timeLeft > 0 ? current.timeLeft : 60
@@ -906,13 +942,36 @@ export function usePomodoro() {
       : 0
     const nextTotalPaused = current.totalPausedSeconds + pauseDuration
 
+    const activePauseDesc = current.pauseDescription?.trim() || ""
+
+    // Update last pause event with final pause description
+    let updatedEvents = current.events
+    if (activePauseDesc) {
+      for (let i = updatedEvents.length - 1; i >= 0; i--) {
+        if (updatedEvents[i].type === "pause") {
+          updatedEvents = [
+            ...updatedEvents.slice(0, i),
+            {
+              ...updatedEvents[i],
+              pauseDescription: activePauseDesc,
+              note: activePauseDesc,
+            },
+            ...updatedEvents.slice(i + 1),
+          ]
+          break
+        }
+      }
+    }
+
     const resumeEvent: TimerEvent = {
       type: "resume",
       timestamp: resumeTimestamp,
       pauseDurationSeconds: pauseDuration,
       timeLeft: seconds,
+      pauseDescription: activePauseDesc || undefined,
+      note: activePauseDesc || undefined,
     }
-    const nextEvents = [...current.events, resumeEvent]
+    const nextEvents = [...updatedEvents, resumeEvent]
 
     setTargetEndTime(end)
     setStatusState("running")
@@ -926,6 +985,7 @@ export function usePomodoro() {
       pausedTimeLeft: seconds,
       totalPausedSeconds: nextTotalPaused,
       lastPausedAt: null,
+      pauseDescription: "", // Reset after resuming so next pause starts fresh
       events: nextEvents,
     })
 
@@ -955,6 +1015,7 @@ export function usePomodoro() {
               created_at: resumeTimestamp,
               time_left_seconds: seconds,
               pause_duration_seconds: pauseDuration,
+              note: activePauseDesc || null,
             })
           } catch {}
         }
@@ -964,7 +1025,7 @@ export function usePomodoro() {
     }
   }, [persistState])
 
-  const pauseTimer = useCallback(async () => {
+  const pauseTimer = useCallback(async (initialReason?: string) => {
     const current = stateRef.current
     if (current.status !== "running" || !current.targetEndTime) return
     const remaining = Math.max(0, Math.ceil((current.targetEndTime - Date.now()) / 1000))
@@ -976,11 +1037,15 @@ export function usePomodoro() {
         : getPresetMinutes(current.preset, current.customMinutes)) * 60
     const elapsedSeconds = Math.max(0, totalDurationSecs - remaining)
 
+    const initialDesc = (initialReason || current.pauseDescription || "").trim()
+
     const pauseEvent: TimerEvent = {
       type: "pause",
       timestamp: pauseTimestamp,
       timeLeft: remaining,
       elapsedSeconds,
+      pauseDescription: initialDesc || undefined,
+      note: initialDesc || undefined,
     }
     const nextEvents = [...current.events, pauseEvent]
 
@@ -989,6 +1054,7 @@ export function usePomodoro() {
     setStatusState("paused")
     setPauseCount(nextPauseCount)
     setLastPausedAt(pauseTimestamp)
+    if (initialDesc) setPauseDescriptionState(initialDesc)
     setEvents(nextEvents)
 
     persistState({
@@ -997,6 +1063,7 @@ export function usePomodoro() {
       pausedTimeLeft: remaining,
       pauseCount: nextPauseCount,
       lastPausedAt: pauseTimestamp,
+      pauseDescription: initialDesc,
       events: nextEvents,
     })
 
@@ -1025,6 +1092,7 @@ export function usePomodoro() {
               event_type: "pause",
               created_at: pauseTimestamp,
               time_left_seconds: remaining,
+              note: initialDesc || null,
             })
           } catch {}
         }
@@ -1235,6 +1303,26 @@ export function usePomodoro() {
       events: current.events,
     })
 
+    const pauseActivities: Array<{
+      timestamp: string
+      durationSeconds: number
+      description: string
+    }> = []
+
+    for (let i = 0; i < current.events.length; i++) {
+      const ev = current.events[i]
+      if (ev.type === "pause" || ev.type === "resume") {
+        const desc = ev.pauseDescription || ev.note
+        if (desc && desc !== current.focusType) {
+          pauseActivities.push({
+            timestamp: ev.timestamp,
+            durationSeconds: ev.pauseDurationSeconds || 0,
+            description: desc,
+          })
+        }
+      }
+    }
+
     return {
       preset:
         preset === "25"
@@ -1253,6 +1341,8 @@ export function usePomodoro() {
       pauseCount: current.pauseCount,
       totalPausedSeconds: current.totalPausedSeconds,
       lastPausedAt: current.lastPausedAt,
+      currentPauseDescription: current.pauseDescription?.trim() || "",
+      pauseActivities,
       events: current.events,
       studyPattern,
       completedTodayCount: todaySessions.length,
@@ -1263,6 +1353,7 @@ export function usePomodoro() {
         startedAt: s.startedAt,
         pauseCount: s.pauseCount ?? 0,
         totalPausedSeconds: s.totalPausedSeconds ?? 0,
+        lastPauseDescription: s.lastPauseDescription,
       })),
     }
   }, [
@@ -1295,6 +1386,8 @@ export function usePomodoro() {
     pauseCount,
     totalPausedSeconds,
     lastPausedAt,
+    pauseDescription,
+    setPauseDescription,
     events,
     startTimer,
     resumeTimer,
