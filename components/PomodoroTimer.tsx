@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import {
   Card,
   CardContent,
@@ -29,6 +29,11 @@ import {
   BookOpen,
   PenLine,
   FileQuestion,
+  Calendar,
+  BarChart3,
+  ListTodo,
+  Link2,
+  Unlink,
 } from "lucide-react"
 import {
   Select,
@@ -37,10 +42,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
 import { usePomodoro, type PomodoroPreset, type FocusType } from "@/hooks/usePomodoro"
 import { useSpacedRepetition } from "@/hooks/useSpacedRepetition"
 import { useUserData } from "@/hooks/useUserData"
+import { useTodos, formatTime12h, getSlotStatus } from "@/hooks/useTodos"
+import { TimetableTodoList } from "@/components/TimetableTodoList"
+import { FocusTimelineAnalysis } from "@/components/FocusTimelineAnalysis"
 
 interface PomodoroTimerProps {
   onOpenAIMentor?: (prefill?: string) => void
@@ -105,6 +122,7 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
     timeLeft,
     progressPct,
     activeDurationMinutes,
+    history,
     todaySessions,
     todayFocusMinutes,
     todayExpEarned,
@@ -124,6 +142,32 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
     setFocusType,
     setBreakMode,
   } = usePomodoro()
+
+  const [focusSectionTab, setFocusSectionTab] = useState<"timer" | "timetable" | "analytics">("timer")
+  const { todos, activeTodo, assignTodoToTimer, unlinkActiveTodo } = useTodos()
+
+  const liveTelemetryState = useMemo(() => ({
+    status,
+    mode,
+    startedAt,
+    lastPausedAt,
+    activeDurationMinutes,
+    timeLeft,
+    pauseCount,
+    totalPausedSeconds,
+    description,
+  }), [status, mode, startedAt, lastPausedAt, activeDurationMinutes, timeLeft, pauseCount, totalPausedSeconds, description])
+
+  const uncompletedTodos = useMemo(() => todos.filter((t) => !t.completed), [todos])
+  const scheduledSlotsCount = useMemo(() => todos.filter((t) => t.hasTimeSlot && !t.completed).length, [todos])
+
+  const activeSlotTodo = useMemo(() => {
+    return todos.find((t) => {
+      if (t.completed || !t.hasTimeSlot || !t.startTime || !t.endTime) return false
+      const evalStatus = getSlotStatus(t.startTime, t.endTime, t.scheduledDate)
+      return evalStatus.isActive
+    })
+  }, [todos])
 
   const [customInput, setCustomInput] = useState<string>(String(customMinutes || 45))
   const [customOpen, setCustomOpen] = useState(false)
@@ -191,9 +235,59 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
   const isCompleted = status === "completed"
 
   return (
-    <div className="space-y-6">
-      {/* Main Focus Console Card */}
-      <Card className="border-border/80 overflow-hidden shadow-sm">
+    <div id="pomodoro-timer-section" className="space-y-6">
+      {/* Focus Module Top Navigation Tabs */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
+        <Tabs value={focusSectionTab} onValueChange={(val: any) => setFocusSectionTab(val)}>
+          <TabsList className="h-9 bg-muted/60 p-1">
+            <TabsTrigger value="timer" className="text-xs h-7 gap-1.5 px-3">
+              <Clock className="h-3.5 w-3.5 text-primary" />
+              <span>Focus Chamber</span>
+              {isRunning && (
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse ml-1" />
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="timetable" className="text-xs h-7 gap-1.5 px-3">
+              <Calendar className="h-3.5 w-3.5 text-amber-500" />
+              <span>Timetable & Tasks</span>
+              {scheduledSlotsCount > 0 && (
+                <Badge variant="secondary" className="text-[10px] py-0 px-1.5 ml-1">
+                  {scheduledSlotsCount}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="text-xs h-7 gap-1.5 px-3">
+              <BarChart3 className="h-3.5 w-3.5 text-sky-500" />
+              <span>24h & 7-Day Graph</span>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {activeTodo && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="text-[11px]">Active Task:</span>
+            <Badge variant="outline" className="border-primary/40 text-primary font-normal truncate max-w-[200px]">
+              {activeTodo.title}
+            </Badge>
+          </div>
+        )}
+      </div>
+
+      {focusSectionTab === "timetable" && (
+        <TimetableTodoList
+          onAssignToTimer={() => setFocusSectionTab("timer")}
+          onOpenTimer={() => setFocusSectionTab("timer")}
+        />
+      )}
+
+      {focusSectionTab === "analytics" && (
+        <FocusTimelineAnalysis sessions={history} liveState={liveTelemetryState} />
+      )}
+
+      {focusSectionTab === "timer" && (
+        <>
+          {/* Main Focus Console Card */}
+          <Card className="border-border/80 overflow-hidden shadow-sm">
         <CardHeader className="pb-3 border-b bg-card/50">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -330,16 +424,112 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
 
           {/* Task Focus & Description Input — communicated directly to AI Mentor */}
           <div className="space-y-3 rounded-xl border border-border/80 bg-background/50 p-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <label className="text-xs font-semibold uppercase tracking-wider text-foreground flex items-center gap-1.5">
                 <Brain className="h-3.5 w-3.5 text-primary" />
                 Session Focus & Description
               </label>
-              <span className="text-[11px] text-primary flex items-center gap-1">
-                <Sparkles className="h-3 w-3" />
-                Communicated directly to your AI Mentor
-              </span>
+
+              <div className="flex items-center gap-2">
+                {uncompletedTodos.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] gap-1 px-2 border-primary/30 text-primary hover:bg-primary/10"
+                      >
+                        <ListTodo className="h-3 w-3" />
+                        <span>Assign from Tasks ({uncompletedTodos.length})</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-80">
+                      <DropdownMenuLabel className="text-xs font-semibold">
+                        Scheduled Timetable & Study Tasks
+                      </DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {uncompletedTodos.slice(0, 8).map((t) => (
+                        <DropdownMenuItem
+                          key={t.id}
+                          onClick={() => assignTodoToTimer(t.id)}
+                          className="text-xs flex flex-col items-start gap-0.5 cursor-pointer p-2"
+                        >
+                          <span className="font-medium text-foreground truncate w-full">
+                            {t.title}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground font-mono">
+                            {t.hasTimeSlot
+                              ? `${formatTime12h(t.startTime)} – ${formatTime12h(t.endTime)}`
+                              : `${t.durationMinutes}m`}{" "}
+                            • <span className="capitalize">{t.focusType.replace("_", " ")}</span>
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                <span className="text-[11px] text-primary hidden sm:flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" />
+                  AI Synced
+                </span>
+              </div>
             </div>
+
+            {/* Active Todo Link Status Banner */}
+            {activeTodo ? (
+              <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs animate-in fade-in">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Link2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span className="text-muted-foreground text-[11px]">Linked Task:</span>
+                  <span className="font-semibold text-primary truncate max-w-[240px] sm:max-w-md">
+                    {activeTodo.title}
+                  </span>
+                  {activeTodo.hasTimeSlot && (
+                    <Badge variant="outline" className="font-mono text-[10px] py-0 border-primary/30 text-primary">
+                      {formatTime12h(activeTodo.startTime)} – {formatTime12h(activeTodo.endTime)}
+                    </Badge>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={unlinkActiveTodo}
+                  className="h-6 text-[11px] text-muted-foreground hover:text-destructive px-1.5 ml-2"
+                  title="Unlink from timer"
+                >
+                  <Unlink className="h-3 w-3 mr-1" />
+                  Unlink
+                </Button>
+              </div>
+            ) : activeSlotTodo ? (
+              <div className="flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-1.5 text-xs animate-in fade-in">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                  </span>
+                  <span className="text-muted-foreground text-[11px]">Timetable Slot Active:</span>
+                  <span className="font-semibold text-foreground truncate max-w-[200px] sm:max-w-sm">
+                    {activeSlotTodo.title}
+                  </span>
+                  <span className="font-mono text-[10px] text-emerald-500">
+                    ({formatTime12h(activeSlotTodo.startTime)} – {formatTime12h(activeSlotTodo.endTime)})
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => assignTodoToTimer(activeSlotTodo.id)}
+                  className="h-6 text-[11px] text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 px-2 ml-2"
+                >
+                  <Play className="h-2.5 w-2.5 fill-current mr-1" />
+                  Load Task
+                </Button>
+              </div>
+            ) : null}
 
             <div className="grid grid-cols-1 sm:grid-cols-[175px_minmax(0,1fr)] gap-2.5">
               <div className="space-y-1">
@@ -765,6 +955,11 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
           )}
         </CardContent>
       </Card>
-    </div>
+
+      {/* 24-Hour & 7-Day Timeline Graph */}
+      <FocusTimelineAnalysis sessions={history} liveState={liveTelemetryState} />
+    </>
+  )}
+</div>
   )
 }

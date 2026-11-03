@@ -68,6 +68,7 @@ import { ActivityHeatmap } from "@/components/ActivityHeatmap"
 import { MockTestInput } from "@/components/MockTestInput"
 import { StreakTracker } from "@/components/StreakTracker"
 import { PauseTimeAnalysis } from "@/components/PauseTimeAnalysis"
+import { FocusTimelineAnalysis } from "@/components/FocusTimelineAnalysis"
 import { GateMarksPredictor } from "@/components/GateMarksPredictor"
 
 export interface ProgressAnalyticsProps {
@@ -1247,6 +1248,11 @@ export function ProgressAnalytics({
               </CardContent>
             </Card>
           </div>
+
+          {/* Continuous 24-Hour Focus, Pause & Break Telemetry & 1-Week Average */}
+          <FocusTimelineAnalysis
+            sessions={pomodoroHistory}
+          />
 
           {/* Time-of-Day Pause & Lag Distribution Diagnostic */}
           <PauseTimeAnalysis

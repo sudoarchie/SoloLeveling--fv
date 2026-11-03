@@ -5,6 +5,7 @@ import { createClient } from "@/utils/supabase/client"
 import { toast } from "sonner"
 import { format, isSameDay } from "date-fns"
 import { analyzeStudyPatterns, type TimerEvent, type FocusType, normalizeFocusType } from "@/lib/study-pattern"
+import { generateRelative7DaySeedSessions } from "@/lib/focus-timeline"
 
 export type PomodoroPreset = "25" | "90" | "180" | "custom"
 export type PomodoroStatus = "idle" | "running" | "paused" | "completed"
@@ -284,26 +285,27 @@ export function usePomodoro() {
 
     try {
       const rawHistory = localStorage.getItem(STORAGE_KEY_HISTORY)
+      const relativeSeeds = generateRelative7DaySeedSessions()
       if (rawHistory) {
         const parsed: PomodoroSessionRecord[] = JSON.parse(rawHistory)
         if (Array.isArray(parsed) && parsed.length > 0) {
           const existingIds = new Set(parsed.map((p) => p.id || p.description + p.completedAt))
-          const missingSeeds = DEFAULT_SEEDED_SESSIONS.filter(
+          const missingSeeds = relativeSeeds.filter(
             (s) => !existingIds.has(s.id) && !existingIds.has(s.description + s.completedAt),
           )
-          const merged = [...parsed, ...missingSeeds].slice(0, 50)
+          const merged = [...parsed, ...missingSeeds].slice(0, 60)
           setHistory(merged)
           localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(merged))
         } else {
-          setHistory(DEFAULT_SEEDED_SESSIONS)
-          localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(DEFAULT_SEEDED_SESSIONS))
+          setHistory(relativeSeeds)
+          localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(relativeSeeds))
         }
       } else {
-        setHistory(DEFAULT_SEEDED_SESSIONS)
-        localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(DEFAULT_SEEDED_SESSIONS))
+        setHistory(relativeSeeds)
+        localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(relativeSeeds))
       }
     } catch {
-      setHistory(DEFAULT_SEEDED_SESSIONS)
+      setHistory(generateRelative7DaySeedSessions())
     }
 
     try {
@@ -587,11 +589,39 @@ export function usePomodoro() {
       }
     }
 
+    const handleAssignTodo = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail) {
+        const mins = detail.customMinutes || 45
+        setPresetState(detail.preset || "custom")
+        setCustomMinutesState(mins)
+        setDescriptionState(detail.title || "")
+        if (detail.focusType) setFocusTypeState(detail.focusType)
+        setModeState("work")
+        setStatusState("idle")
+        setTargetEndTime(null)
+        setTimeLeft(mins * 60)
+        persistState({
+          preset: detail.preset || "custom",
+          customMinutes: mins,
+          description: detail.title || "",
+          focusType: detail.focusType,
+          mode: "work",
+          status: "idle",
+          targetEndTime: null,
+          pausedTimeLeft: mins * 60,
+          durationMinutes: mins,
+        })
+      }
+    }
+
     window.addEventListener("storage", handleStorage)
     window.addEventListener("pomodoro-state-changed", handleCustomSync)
+    window.addEventListener("pomodoro-assign-todo", handleAssignTodo)
     return () => {
       window.removeEventListener("storage", handleStorage)
       window.removeEventListener("pomodoro-state-changed", handleCustomSync)
+      window.removeEventListener("pomodoro-assign-todo", handleAssignTodo)
     }
   }, [])
 
@@ -670,9 +700,35 @@ export function usePomodoro() {
         status: "completed",
       }
 
-      const updatedHistory = [record, ...history].slice(0, 50)
+      const updatedHistory = [record, ...history].slice(0, 60)
       setHistory(updatedHistory)
       localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(updatedHistory))
+
+      // If an assigned todo was linked, mark it completed and credit focus minutes
+      try {
+        const activeTodoId = localStorage.getItem("gate_tracker_active_todo_id")
+        if (activeTodoId) {
+          const rawTodos = localStorage.getItem("gate_tracker_todos_v2")
+          if (rawTodos) {
+            const parsedTodos = JSON.parse(rawTodos)
+            if (Array.isArray(parsedTodos)) {
+              const nextTodos = parsedTodos.map((t: any) => {
+                if (t.id === activeTodoId) {
+                  return {
+                    ...t,
+                    completed: true,
+                    completedAt: completeTimestamp,
+                    timeSpentMinutes: (t.timeSpentMinutes || 0) + mins,
+                  }
+                }
+                return t
+              })
+              localStorage.setItem("gate_tracker_todos_v2", JSON.stringify(nextTodos))
+              window.dispatchEvent(new CustomEvent("gate-tracker-todos-changed", { detail: nextTodos }))
+            }
+          }
+        }
+      } catch {}
 
       // Clear active tracking states
       setActiveSessionId(null)
@@ -814,6 +870,22 @@ export function usePomodoro() {
           toast.info("Break finished! Ready for the next focus sprint.", {
             description: "Pick your next goal and start the timer.",
           })
+          const breakRecord: PomodoroSessionRecord = {
+            id: `break_${Date.now()}`,
+            preset: "custom",
+            focusType: "other",
+            durationMinutes: mins,
+            description: `Recharge Break (${mins}m)`,
+            completedAt: new Date().toISOString(),
+            startedAt: current.startedAt || new Date(Date.now() - mins * 60 * 1000).toISOString(),
+            pauseCount: 0,
+            totalPausedSeconds: 0,
+            expAwarded: 10,
+            status: "completed",
+          }
+          const updatedHistory = [breakRecord, ...history].slice(0, 60)
+          setHistory(updatedHistory)
+          localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(updatedHistory))
         }
 
         persistState({

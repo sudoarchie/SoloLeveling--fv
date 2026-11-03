@@ -18,8 +18,10 @@ import {
   Zap,
   Flame,
   CheckCircle2,
+  Calendar,
 } from "lucide-react"
 import { usePomodoro, type PomodoroPreset } from "@/hooks/usePomodoro"
+import { useTodos, formatTime12h, getSlotStatus } from "@/hooks/useTodos"
 
 interface QuickFocusWidgetProps {
   onOpenFocusTab: () => void
@@ -59,6 +61,13 @@ export function QuickFocusWidget({
     setPreset,
     setDescription,
   } = usePomodoro()
+
+  const { todos, activeTodo, assignTodoToTimer } = useTodos()
+  const activeSlotTodo = todos.find((t) => {
+    if (t.completed || !t.hasTimeSlot || !t.startTime || !t.endTime) return false
+    const evalStatus = getSlotStatus(t.startTime, t.endTime, t.scheduledDate)
+    return evalStatus.isActive
+  })
 
   const isRunning = status === "running"
   const isPaused = status === "paused"
@@ -207,6 +216,30 @@ export function QuickFocusWidget({
         ) : (
           // Idle state - quick starter
           <div className="space-y-3">
+            {activeSlotTodo && (
+              <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs animate-in fade-in">
+                <div className="flex items-center gap-1.5 truncate">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                  <span className="text-[11px] text-muted-foreground">Live Timetable Slot:</span>
+                  <span className="font-semibold text-foreground truncate">{activeSlotTodo.title}</span>
+                  <span className="font-mono text-[10px] text-emerald-500 hidden sm:inline">
+                    ({formatTime12h(activeSlotTodo.startTime)} – {formatTime12h(activeSlotTodo.endTime)})
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    assignTodoToTimer(activeSlotTodo.id)
+                    onOpenFocusTab()
+                  }}
+                  className="h-6 text-[11px] text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 ml-2"
+                >
+                  <Play className="h-2.5 w-2.5 fill-current mr-1" />
+                  <span>Start</span>
+                </Button>
+              </div>
+            )}
             <div className="flex flex-col sm:flex-row gap-2">
               <div className="flex-1">
                 <Input
