@@ -9,7 +9,7 @@
 
 import { format, subDays, isSameDay, startOfDay, addHours } from "date-fns"
 import type { PomodoroSessionRecord } from "@/hooks/usePomodoro"
-import { formatHourLabel } from "@/lib/study-pattern"
+import { formatHourLabel } from "./study-pattern.ts"
 
 export interface HourlyTelemetry {
   hour: number // 0 to 23
@@ -66,6 +66,19 @@ export interface DayPatternRow {
   }
 }
 
+export interface WeeklyTimeWiseHourlyAverage {
+  hour: number
+  label: string
+  windowLabel: string
+  avgFocusMinutes: number
+  avgPauseMinutes: number
+  avgBreakMinutes: number
+  totalDaysStudied: number
+  consistencyScore: number
+  isPeakFocusHour?: boolean
+  isPeakPauseHour?: boolean
+}
+
 /**
  * Extracts chronological sessions for a specific day to power the visual timeline swimlane
  */
@@ -76,9 +89,22 @@ export function getChronologicalSessionsForDay(
 ): ChronologicalSessionBlock[] {
   const blocks: ChronologicalSessionBlock[] = []
 
+  const targetDayStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0, 0, 0, 0)
+  const targetDayEnd = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() + 1, 0, 0, 0, 0)
+
   const daySessions = sessions.filter((s) => {
-    const sDate = s.completedAt ? new Date(s.completedAt) : s.startedAt ? new Date(s.startedAt) : null
-    return sDate && isSameDay(sDate, targetDate)
+    const start = s.startedAt
+      ? new Date(s.startedAt)
+      : s.completedAt
+        ? new Date(new Date(s.completedAt).getTime() - (s.durationMinutes || 25) * 60 * 1000)
+        : null
+    const end = s.completedAt
+      ? new Date(s.completedAt)
+      : start
+        ? new Date(start.getTime() + (s.durationMinutes || 25) * 60 * 1000)
+        : null
+    if (!start || !end) return false
+    return end.getTime() > targetDayStart.getTime() && start.getTime() < targetDayEnd.getTime()
   })
 
   daySessions.forEach((s) => {
@@ -91,8 +117,18 @@ export function getChronologicalSessionsForDay(
       ? new Date(s.completedAt)
       : new Date(start.getTime() + (s.durationMinutes || 25) * 60 * 1000)
 
-    const dur = Math.max(5, Math.round((end.getTime() - start.getTime()) / (60 * 1000)))
-    const paused = Math.round((s.totalPausedSeconds || 0) / 60)
+    const overlapStartMs = Math.max(start.getTime(), targetDayStart.getTime())
+    const overlapEndMs = Math.min(end.getTime(), targetDayEnd.getTime())
+    if (overlapEndMs <= overlapStartMs) return
+
+    const overlapStart = new Date(overlapStartMs)
+    const overlapEnd = new Date(overlapEndMs)
+    const totalSessionDurMs = Math.max(1000, end.getTime() - start.getTime())
+    const overlapRatio = Math.min(1, (overlapEndMs - overlapStartMs) / totalSessionDurMs)
+
+    const dur = Math.max(1, Math.round((overlapEndMs - overlapStartMs) / (60 * 1000)))
+    const totalPaused = Math.round((s.totalPausedSeconds || 0) / 60)
+    const paused = Math.round(totalPaused * overlapRatio)
     const netFocus = Math.max(0, dur - paused)
     const isBreak =
       s.description?.toLowerCase().includes("break") ||
@@ -121,7 +157,7 @@ export function getChronologicalSessionsForDay(
 
     if (pausesList.length === 0 && (s.pauseCount || 0) > 0) {
       pausesList.push({
-        timeFormatted: start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        timeFormatted: overlapStart.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         durationMinutes: paused,
         description: s.lastPauseDescription || `${s.pauseCount} pause event(s)`,
       })
@@ -131,17 +167,17 @@ export function getChronologicalSessionsForDay(
       id: s.id,
       title: s.description || (isBreak ? "Recharge Break" : "Deep Focus Session"),
       focusType: isBreak ? "break" : s.focusType || "practice",
-      startedAt: start.toISOString(),
-      completedAt: end.toISOString(),
-      startTimeFormatted: start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      endTimeFormatted: end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      startMinutesOfDay: start.getHours() * 60 + start.getMinutes(),
+      startedAt: overlapStart.toISOString(),
+      completedAt: overlapEnd.toISOString(),
+      startTimeFormatted: overlapStart.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      endTimeFormatted: overlapEnd.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      startMinutesOfDay: overlapStart.getHours() * 60 + overlapStart.getMinutes(),
       durationMinutes: dur,
       netFocusMinutes: netFocus,
       pausedMinutes: paused,
       isBreak,
       staminaPct: stamina,
-      pauseCount: s.pauseCount || 0,
+      pauseCount: Math.round((s.pauseCount || 0) * overlapRatio),
       pauses: pausesList,
     })
   })
@@ -380,13 +416,10 @@ export function compute24HourDayTimeline(
     })
   }
 
-  // Filter sessions that took place on targetDate
-  const daySessions = sessions.filter((s) => {
-    const sDate = s.completedAt ? new Date(s.completedAt) : s.startedAt ? new Date(s.startedAt) : null
-    return sDate && isSameDay(sDate, targetDate)
-  })
+  const targetDayStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0, 0, 0, 0)
+  const targetDayEnd = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() + 1, 0, 0, 0, 0)
 
-  daySessions.forEach((session) => {
+  sessions.forEach((session) => {
     const sessionStart = session.startedAt
       ? new Date(session.startedAt)
       : session.completedAt
@@ -401,45 +434,55 @@ export function compute24HourDayTimeline(
 
     if (!sessionStart || !sessionEnd) return
 
-    const durationTotalMinutes = Math.max(1, Math.round((sessionEnd.getTime() - sessionStart.getTime()) / (60 * 1000)))
-    const pausedMinutes = Math.round((session.totalPausedSeconds || 0) / 60)
-    const netFocusMinutes = Math.max(0, durationTotalMinutes - pausedMinutes)
-    const isBreakSession = session.description?.toLowerCase().includes("break") || session.preset === "custom" && session.durationMinutes <= 15 && session.description?.toLowerCase().includes("rest")
+    const overlapStartMs = Math.max(sessionStart.getTime(), targetDayStart.getTime())
+    const overlapEndMs = Math.min(sessionEnd.getTime(), targetDayEnd.getTime())
+    if (overlapEndMs <= overlapStartMs) return
 
-    // Allocate across hours spanned
-    const startHour = sessionStart.getHours()
-    const endHour = sessionEnd.getHours()
+    const totalDurationMs = Math.max(1000, sessionEnd.getTime() - sessionStart.getTime())
+    const overlapDurationMinutes = Math.max(1, Math.round((overlapEndMs - overlapStartMs) / (60 * 1000)))
+    const overlapRatio = Math.min(1, (overlapEndMs - overlapStartMs) / totalDurationMs)
+
+    const totalPausedMinutes = Math.round((session.totalPausedSeconds || 0) / 60)
+    const pausedMinutes = Math.round(totalPausedMinutes * overlapRatio)
+    const netFocusMinutes = Math.max(0, overlapDurationMinutes - pausedMinutes)
+    const isBreakSession =
+      session.description?.toLowerCase().includes("break") ||
+      (session.preset === "custom" && session.durationMinutes <= 15 && session.description?.toLowerCase().includes("rest"))
+
+    // Allocate across hours spanned strictly on targetDate
+    const startHour = new Date(overlapStartMs).getHours()
+    const endHour = new Date(overlapEndMs - 1).getHours()
 
     if (startHour === endHour) {
       const bucket = result[startHour]
       if (bucket) {
         if (isBreakSession) {
-          bucket.breakMinutes = Math.min(60, bucket.breakMinutes + durationTotalMinutes)
+          bucket.breakMinutes = Math.min(60, bucket.breakMinutes + overlapDurationMinutes)
         } else {
           bucket.focusMinutes = Math.min(60, bucket.focusMinutes + netFocusMinutes)
           bucket.pauseMinutes = Math.min(60, bucket.pauseMinutes + pausedMinutes)
         }
-        bucket.pauseCount += session.pauseCount || 0
+        bucket.pauseCount += Math.round((session.pauseCount || 0) * overlapRatio)
         if (session.description && !bucket.sessionDescriptions.includes(session.description)) {
           bucket.sessionDescriptions.push(session.description)
         }
       }
     } else {
-      // Spans multiple hours (e.g. 04:00 to 07:00)
-      const hoursCount = Math.max(1, (endHour >= startHour ? endHour - startHour : 24 - startHour + endHour) + 1)
+      const hoursCount = Math.max(1, endHour - startHour + 1)
       const focusPerHour = Math.round((netFocusMinutes / hoursCount) * 10) / 10
       const pausePerHour = Math.round((pausedMinutes / hoursCount) * 10) / 10
+      const breakPerHour = Math.round((overlapDurationMinutes / hoursCount) * 10) / 10
 
       for (let cur = startHour; cur <= endHour; cur++) {
         const bucket = result[cur]
         if (bucket) {
           if (isBreakSession) {
-            bucket.breakMinutes = Math.min(60, Math.round(bucket.breakMinutes + durationTotalMinutes / hoursCount))
+            bucket.breakMinutes = Math.min(60, Math.round(bucket.breakMinutes + breakPerHour))
           } else {
             bucket.focusMinutes = Math.min(60, Math.round(bucket.focusMinutes + focusPerHour))
             bucket.pauseMinutes = Math.min(60, Math.round(bucket.pauseMinutes + pausePerHour))
           }
-          bucket.pauseCount += Math.round((session.pauseCount || 0) / hoursCount)
+          bucket.pauseCount += Math.round(((session.pauseCount || 0) * overlapRatio) / hoursCount)
           if (session.description && !bucket.sessionDescriptions.includes(session.description)) {
             bucket.sessionDescriptions.push(session.description)
           }
@@ -574,98 +617,3 @@ export function computeWeeklyTimeWiseAverage(
   return result
 }
 
-/**
- * Generates relative 7-day rich seed data anchored to the user's current date
- * Ensures user has rich data for 4am-7am, afternoon, evening, and night with pauses & breaks!
- */
-export function generateRelative7DaySeedSessions(): PomodoroSessionRecord[] {
-  const now = new Date()
-  const seeds: PomodoroSessionRecord[] = []
-
-  // Template pattern across the 7 days:
-  // Day 0 (Today): 4:00 AM - 7:00 AM (CN Lecture), 9:30 AM - 11:00 AM (OS Practice), 14:00 - 15:30 (Revision)
-  // Day 1 (Yesterday): 4:00 AM - 7:00 AM (OS Practice), 14:00 - 15:00 (Break & Revision), 18:00 - 21:00 (Mock Exam)
-  // Day 2 (-2 days): 4:00 AM - 6:30 AM (Algorithms), 10:00 - 11:30 (Maths PYQ), 20:00 - 22:30 (CN Lecture)
-  // Day 3 (-3 days): 4:00 AM - 7:00 AM (DBMS Lecture), 15:00 - 16:30 (Practice), 21:00 - 22:30 (Formulas)
-  // Day 4 (-4 days): 4:00 AM - 7:00 AM (CN Layering & Routing), 14:00 - 15:30 (OS Paging), 18:00 - 21:00 (Mock Test)
-  // Day 5 (-5 days): 4:30 AM - 7:00 AM (TOC & Automata), 11:00 - 12:30 (Practice), 19:00 - 20:30 (Revision)
-  // Day 6 (-6 days): 4:00 AM - 7:00 AM (Compilers & Syntax Trees), 14:30 - 16:00 (PYQs), 20:00 - 21:30 (Formulas)
-
-  const patterns = [
-    // Day 0 (Today)
-    [
-      { startH: 4, startM: 0, endH: 7, endM: 0, desc: "Computer Networks Layer Functions & Headers (Videos 5–7)", focus: "lecture", preset: "180", pauses: 1, pauseSec: 480, exp: 250 },
-      { startH: 7, startM: 10, endH: 7, endM: 35, desc: "Post-Study Recharge & Stretch Break", focus: "other", preset: "custom", pauses: 0, pauseSec: 0, exp: 10 },
-      { startH: 9, startM: 30, endH: 11, endM: 0, desc: "Operating Systems Paging & Virtual Memory PYQs", focus: "practice", preset: "90", pauses: 2, pauseSec: 540, exp: 120 },
-      { startH: 14, startM: 0, endH: 15, endM: 30, desc: "DBMS Normalization 1NF to BCNF Formula Recall", focus: "revision", preset: "90", pauses: 1, pauseSec: 360, exp: 120 },
-    ],
-    // Day 1 (Yesterday)
-    [
-      { startH: 4, startM: 0, endH: 7, endM: 0, desc: "OS Deadlocks, Semaphores & CPU Scheduling Practice", focus: "practice", preset: "180", pauses: 2, pauseSec: 600, exp: 250 },
-      { startH: 7, startM: 15, endH: 7, endM: 45, desc: "Morning Refresh & Hydration Break", focus: "other", preset: "custom", pauses: 0, pauseSec: 0, exp: 15 },
-      { startH: 14, startM: 0, endH: 15, endM: 30, desc: "Computer Networks Routing Algorithms (Distance Vector & Link State)", focus: "lecture", preset: "90", pauses: 1, pauseSec: 420, exp: 120 },
-      { startH: 18, startM: 0, endH: 21, endM: 0, desc: "GATE CS Full Paper Closed-Book Mock Simulation 1", focus: "mock_test", preset: "180", pauses: 0, pauseSec: 0, exp: 250 },
-    ],
-    // Day 2
-    [
-      { startH: 4, startM: 0, endH: 6, endM: 30, desc: "Algorithms Graph Theory & Dijkstra's Shortest Path", focus: "practice", preset: "custom", pauses: 1, pauseSec: 300, exp: 200 },
-      { startH: 10, startM: 0, endH: 11, endM: 30, desc: "Discrete Mathematics Combinatorics & Probability PYQs", focus: "practice", preset: "90", pauses: 0, pauseSec: 0, exp: 120 },
-      { startH: 15, startM: 0, endH: 15, endM: 30, desc: "Midday Eye Rest & Power Walk Break", focus: "other", preset: "custom", pauses: 0, pauseSec: 0, exp: 10 },
-      { startH: 20, startM: 0, endH: 22, endM: 30, desc: "CN TCP Flow Control & Congestion Window Analysis", focus: "lecture", preset: "custom", pauses: 2, pauseSec: 720, exp: 200 },
-    ],
-    // Day 3
-    [
-      { startH: 4, startM: 0, endH: 7, endM: 0, desc: "DBMS Relational Algebra & SQL Query Optimization", focus: "lecture", preset: "180", pauses: 1, pauseSec: 360, exp: 250 },
-      { startH: 14, startM: 30, endH: 16, endM: 0, desc: "Digital Logic Boolean Algebra & K-Maps", focus: "practice", preset: "90", pauses: 1, pauseSec: 480, exp: 120 },
-      { startH: 21, startM: 0, endH: 22, endM: 30, desc: "Daily Formula Flashcard Recall & Mistake Notebook", focus: "revision", preset: "90", pauses: 0, pauseSec: 0, exp: 120 },
-    ],
-    // Day 4
-    [
-      { startH: 4, startM: 0, endH: 7, endM: 0, desc: "CN Layering Architecture & Encapsulation Deep Work", focus: "lecture", preset: "180", pauses: 2, pauseSec: 660, exp: 250 },
-      { startH: 13, startM: 45, endH: 14, endM: 15, desc: "Post-lunch Recovery & Tea Break", focus: "other", preset: "custom", pauses: 0, pauseSec: 0, exp: 15 },
-      { startH: 14, startM: 30, endH: 16, endM: 0, desc: "OS Memory Management & Segmentation Practice", focus: "practice", preset: "90", pauses: 2, pauseSec: 540, exp: 120 },
-      { startH: 18, startM: 0, endH: 21, endM: 0, desc: "Full Length Mock Paper 2 (Speed & Accuracy Calibration)", focus: "mock_test", preset: "180", pauses: 0, pauseSec: 0, exp: 250 },
-    ],
-    // Day 5
-    [
-      { startH: 4, startM: 30, endH: 7, endM: 0, desc: "Theory of Computation Regular Expressions & DFA Minimization", focus: "lecture", preset: "custom", pauses: 1, pauseSec: 300, exp: 190 },
-      { startH: 11, startM: 0, endH: 12, endM: 30, desc: "TOC Pumping Lemma & Context Free Grammars PYQs", focus: "practice", preset: "90", pauses: 0, pauseSec: 0, exp: 120 },
-      { startH: 19, startM: 0, endH: 20, endM: 30, desc: "Compiler Design Lexical Analysis & Top-Down Parsing", focus: "revision", preset: "90", pauses: 1, pauseSec: 360, exp: 120 },
-    ],
-    // Day 6
-    [
-      { startH: 4, startM: 0, endH: 7, endM: 0, desc: "Computer Architecture Pipelining & Hazard Resolution", focus: "lecture", preset: "180", pauses: 1, pauseSec: 420, exp: 250 },
-      { startH: 14, startM: 0, endH: 15, endM: 30, desc: "Cache Memory Direct, Set-Associative & Miss Rate Calculations", focus: "practice", preset: "90", pauses: 2, pauseSec: 600, exp: 120 },
-      { startH: 20, startM: 0, endH: 21, endM: 30, desc: "Weekly Comprehensive Weakness Review", focus: "revision", preset: "90", pauses: 0, pauseSec: 0, exp: 120 },
-    ],
-  ]
-
-  patterns.forEach((dayItems, dayOffset) => {
-    const dayDate = subDays(now, dayOffset)
-    const year = dayDate.getFullYear()
-    const month = dayDate.getMonth()
-    const date = dayDate.getDate()
-
-    dayItems.forEach((item, idx) => {
-      const start = new Date(year, month, date, item.startH, item.startM, 0)
-      const end = new Date(year, month, date, item.endH, item.endM, 0)
-      const durationMins = Math.round((end.getTime() - start.getTime()) / (60 * 1000))
-
-      seeds.push({
-        id: `seed-rel-${dayOffset}-${idx}`,
-        preset: item.preset as any,
-        focusType: item.focus as any,
-        durationMinutes: durationMins,
-        description: item.desc,
-        startedAt: start.toISOString(),
-        completedAt: end.toISOString(),
-        pauseCount: item.pauses,
-        totalPausedSeconds: item.pauseSec,
-        expAwarded: item.exp,
-        status: "completed",
-      })
-    })
-  })
-
-  return seeds
-}

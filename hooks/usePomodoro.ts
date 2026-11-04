@@ -5,7 +5,6 @@ import { createClient } from "@/utils/supabase/client"
 import { toast } from "sonner"
 import { format, isSameDay } from "date-fns"
 import { analyzeStudyPatterns, type TimerEvent, type FocusType, normalizeFocusType } from "@/lib/study-pattern"
-import { generateRelative7DaySeedSessions } from "@/lib/focus-timeline"
 
 export type PomodoroPreset = "25" | "90" | "180" | "custom"
 export type PomodoroStatus = "idle" | "running" | "paused" | "completed"
@@ -51,113 +50,8 @@ interface StoredPomodoroState {
 const STORAGE_KEY_STATE = "gate_tracker_pomodoro_state_v2"
 const STORAGE_KEY_HISTORY = "gate_tracker_pomodoro_history_v2"
 
-export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = [
-  {
-    id: "pomodoro-seed-1",
-    preset: "180",
-    focusType: "lecture",
-    durationMinutes: 180,
-    description:
-      "cn lecture Videos 5–7 | GATE 2016–2018 Layer Functions & Headers OSI & TCP/IP Reference Models, Layering Architecture & Encapsulation",
-    completedAt: "2026-10-20T16:09:00.000Z",
-    startedAt: "2026-10-20T13:00:00.000Z",
-    pauseCount: 1,
-    totalPausedSeconds: 540,
-    expAwarded: 250,
-    status: "completed",
-  },
-  {
-    id: "pomodoro-seed-2",
-    preset: "180",
-    focusType: "practice",
-    durationMinutes: 180,
-    description: "Operating Systems & Computer Networks Deep Focus Block",
-    completedAt: "2026-10-20T14:15:00.000Z",
-    startedAt: "2026-10-20T11:15:00.000Z",
-    pauseCount: 2,
-    totalPausedSeconds: 600,
-    expAwarded: 250,
-    status: "completed",
-  },
-  {
-    id: "pomodoro-seed-3",
-    preset: "90",
-    focusType: "practice",
-    durationMinutes: 90,
-    description: "DSA & Algorithms Problem Practice",
-    completedAt: "2026-10-20T11:45:00.000Z",
-    startedAt: "2026-10-20T10:15:00.000Z",
-    pauseCount: 0,
-    totalPausedSeconds: 0,
-    expAwarded: 120,
-    status: "completed",
-  },
-  {
-    id: "pomodoro-seed-4",
-    preset: "25",
-    focusType: "revision",
-    durationMinutes: 25,
-    description: "Revision dsa notes",
-    completedAt: "2026-10-20T12:21:00.000Z",
-    startedAt: "2026-10-20T11:55:00.000Z",
-    pauseCount: 0,
-    totalPausedSeconds: 0,
-    expAwarded: 30,
-    status: "completed",
-  },
-  {
-    id: "pomodoro-seed-5",
-    preset: "25",
-    focusType: "revision",
-    durationMinutes: 25,
-    description: "Revision dsa notes - Quick recall",
-    completedAt: "2026-10-20T10:15:00.000Z",
-    startedAt: "2026-10-20T09:50:00.000Z",
-    pauseCount: 1,
-    totalPausedSeconds: 120,
-    expAwarded: 30,
-    status: "completed",
-  },
-  {
-    id: "pomodoro-seed-6",
-    preset: "90",
-    focusType: "revision",
-    durationMinutes: 25,
-    description: "Revision dsa notes & PYQ review",
-    completedAt: "2026-10-20T09:38:00.000Z",
-    startedAt: "2026-10-20T09:12:00.000Z",
-    pauseCount: 0,
-    totalPausedSeconds: 0,
-    expAwarded: 30,
-    status: "completed",
-  },
-  {
-    id: "pomodoro-seed-7",
-    preset: "25",
-    focusType: "revision",
-    durationMinutes: 25,
-    description: "Formula review & concepts",
-    completedAt: "2026-10-20T08:30:00.000Z",
-    startedAt: "2026-10-20T08:05:00.000Z",
-    pauseCount: 0,
-    totalPausedSeconds: 0,
-    expAwarded: 30,
-    status: "completed",
-  },
-  {
-    id: "pomodoro-seed-8",
-    preset: "180",
-    focusType: "mock_test",
-    durationMinutes: 180,
-    description: "GATE CS Full Mock Exam 1 (Closed Book Simulation)",
-    completedAt: "2026-10-19T17:00:00.000Z",
-    startedAt: "2026-10-19T14:00:00.000Z",
-    pauseCount: 0,
-    totalPausedSeconds: 0,
-    expAwarded: 250,
-    status: "completed",
-  },
-]
+export const DEFAULT_SEEDED_SESSIONS: PomodoroSessionRecord[] = []
+
 
 // Synthesize pleasant completion chime via Web Audio API
 function playCompletionChime() {
@@ -223,15 +117,13 @@ function calculateExp(durationMinutes: number): number {
 export function usePomodoro() {
   const [preset, setPresetState] = useState<PomodoroPreset>("180")
   const [customMinutes, setCustomMinutesState] = useState<number>(45)
-  const [description, setDescriptionState] = useState<string>(
-    "cn lecture Videos 5–7 | GATE 2016–2018 Layer Functions & Headers OSI & TCP/IP Reference Models, Layering Architecture & Encapsulation",
-  )
+  const [description, setDescriptionState] = useState<string>("")
   const [focusType, setFocusTypeState] = useState<FocusType>("lecture")
   const [mode, setModeState] = useState<PomodoroMode>("work")
   const [status, setStatusState] = useState<PomodoroStatus>("idle")
   const [timeLeft, setTimeLeft] = useState<number>(180 * 60)
   const [targetEndTime, setTargetEndTime] = useState<number | null>(null)
-  const [history, setHistory] = useState<PomodoroSessionRecord[]>(DEFAULT_SEEDED_SESSIONS)
+  const [history, setHistory] = useState<PomodoroSessionRecord[]>([])
 
   // Live timer telemetry fields (persisted to DB & AI)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
@@ -285,27 +177,22 @@ export function usePomodoro() {
 
     try {
       const rawHistory = localStorage.getItem(STORAGE_KEY_HISTORY)
-      const relativeSeeds = generateRelative7DaySeedSessions()
       if (rawHistory) {
         const parsed: PomodoroSessionRecord[] = JSON.parse(rawHistory)
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const existingIds = new Set(parsed.map((p) => p.id || p.description + p.completedAt))
-          const missingSeeds = relativeSeeds.filter(
-            (s) => !existingIds.has(s.id) && !existingIds.has(s.description + s.completedAt),
+          const cleaned = parsed.filter(
+            (p) => !p.id?.startsWith("pomodoro-seed-") && !p.id?.startsWith("seed-rel-"),
           )
-          const merged = [...parsed, ...missingSeeds].slice(0, 60)
-          setHistory(merged)
-          localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(merged))
+          setHistory(cleaned)
+          localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(cleaned))
         } else {
-          setHistory(relativeSeeds)
-          localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(relativeSeeds))
+          setHistory([])
         }
       } else {
-        setHistory(relativeSeeds)
-        localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(relativeSeeds))
+        setHistory([])
       }
     } catch {
-      setHistory(generateRelative7DaySeedSessions())
+      setHistory([])
     }
 
     try {
@@ -314,10 +201,7 @@ export function usePomodoro() {
         const parsed: StoredPomodoroState = JSON.parse(rawState)
         setPresetState(parsed.preset || "180")
         setCustomMinutesState(parsed.customMinutes || 45)
-        setDescriptionState(
-          parsed.description ||
-            "cn lecture Videos 5–7 | GATE 2016–2018 Layer Functions & Headers OSI & TCP/IP Reference Models, Layering Architecture & Encapsulation",
-        )
+        setDescriptionState(parsed.description || "")
         if (parsed.focusType) setFocusTypeState(parsed.focusType)
         setModeState(parsed.mode || "work")
 
@@ -438,12 +322,13 @@ export function usePomodoro() {
         const rawHistory = localStorage.getItem(STORAGE_KEY_HISTORY)
         const parsed: PomodoroSessionRecord[] = rawHistory
           ? JSON.parse(rawHistory)
-          : DEFAULT_SEEDED_SESSIONS
+          : []
         if (!Array.isArray(parsed)) return
 
         const todaySes = parsed.filter(
           (h) =>
             !h.id?.startsWith("pomodoro-seed-") &&
+            !h.id?.startsWith("seed-rel-") &&
             h.completedAt &&
             isSameDay(new Date(h.completedAt), new Date()),
         )

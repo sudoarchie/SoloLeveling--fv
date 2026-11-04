@@ -176,84 +176,6 @@ export function playAlarmSound() {
   }
 }
 
-function getInitialDefaultTodos(): TodoItem[] {
-  const today = format(new Date(), "yyyy-MM-dd")
-  return [
-    {
-      id: "todo-seed-1",
-      title: "Watch CN Lectures 5–7 (OSI & TCP/IP Layer Functions & Encapsulation)",
-      notes: "Focus on header structures, flow control, and OSI vs TCP/IP mapping. Take concise revision formulas.",
-      focusType: "lecture",
-      preset: "180",
-      durationMinutes: 180,
-      hasTimeSlot: true,
-      startTime: "04:00",
-      endTime: "07:00",
-      scheduledDate: today,
-      alarmEnabled: true,
-      alarmTriggered: false,
-      completed: false,
-      priority: "high",
-      createdAt: new Date().toISOString(),
-      timeSpentMinutes: 0,
-    },
-    {
-      id: "todo-seed-2",
-      title: "Operating Systems Paging & Virtual Memory Practice (25 GATE PYQs)",
-      notes: "Multi-level paging, inverted page tables, TLB hit ratio numerical problems.",
-      focusType: "practice",
-      preset: "90",
-      durationMinutes: 150,
-      hasTimeSlot: true,
-      startTime: "09:00",
-      endTime: "11:30",
-      scheduledDate: today,
-      alarmEnabled: true,
-      alarmTriggered: false,
-      completed: false,
-      priority: "high",
-      createdAt: new Date().toISOString(),
-      timeSpentMinutes: 0,
-    },
-    {
-      id: "todo-seed-3",
-      title: "DBMS Relational Algebra & Normalization Quick Revision",
-      notes: "Lossless join decomposition, dependency preservation, BCNF vs 3NF rules.",
-      focusType: "revision",
-      preset: "90",
-      durationMinutes: 90,
-      hasTimeSlot: true,
-      startTime: "14:00",
-      endTime: "15:30",
-      scheduledDate: today,
-      alarmEnabled: false,
-      alarmTriggered: false,
-      completed: false,
-      priority: "medium",
-      createdAt: new Date().toISOString(),
-      timeSpentMinutes: 0,
-    },
-    {
-      id: "todo-seed-4",
-      title: "GATE Full Paper Closed-Book Mock Exam Simulation",
-      notes: "Strict 3-hour exam simulation. No notes, no interruptions.",
-      focusType: "mock_test",
-      preset: "180",
-      durationMinutes: 180,
-      hasTimeSlot: true,
-      startTime: "18:00",
-      endTime: "21:00",
-      scheduledDate: today,
-      alarmEnabled: true,
-      alarmTriggered: false,
-      completed: false,
-      priority: "high",
-      createdAt: new Date().toISOString(),
-      timeSpentMinutes: 0,
-    },
-  ]
-}
-
 export function useTodos() {
   const [todos, setTodos] = useState<TodoItem[]>([])
   const [activeTodoId, setActiveTodoId] = useState<string | null>(null)
@@ -270,20 +192,17 @@ export function useTodos() {
       if (stored) {
         const parsed: TodoItem[] = JSON.parse(stored)
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setTodos(parsed)
+          const cleaned = parsed.filter((t) => !t.id?.startsWith("todo-seed-"))
+          setTodos(cleaned)
+          localStorage.setItem(STORAGE_KEY_TODOS, JSON.stringify(cleaned))
         } else {
-          const defaults = getInitialDefaultTodos()
-          setTodos(defaults)
-          localStorage.setItem(STORAGE_KEY_TODOS, JSON.stringify(defaults))
+          setTodos([])
         }
       } else {
-        const defaults = getInitialDefaultTodos()
-        setTodos(defaults)
-        localStorage.setItem(STORAGE_KEY_TODOS, JSON.stringify(defaults))
+        setTodos([])
       }
     } catch {
-      const defaults = getInitialDefaultTodos()
-      setTodos(defaults)
+      setTodos([])
     }
 
     try {

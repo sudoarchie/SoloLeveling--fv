@@ -194,7 +194,7 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
       dueTopicNames.length > 0
         ? dueTopicNames
         : [
-            "DBMS Normalization 1NF to BCNF Formula Recall",
+            "Formula Flashcards & Active Recall",
             "OS CPU Scheduling Formulas & Turnaround Time",
             "Cache Memory Direct & Set Associative Mapping",
             "Computer Architecture Pipelining Hazards Formula",
@@ -587,7 +587,7 @@ export function PomodoroTimer({ onOpenAIMentor }: PomodoroTimerProps) {
                       : focusType === "practice"
                         ? "e.g., Solving 25 GATE PYQs on Graph Theory & Dijkstra's Algorithm..."
                         : focusType === "revision"
-                          ? "e.g., Revision of DBMS Normalization 1NF to BCNF notes..."
+                          ? "e.g., Revision of high-yield formulas and concepts..."
                           : focusType === "mock_test"
                             ? "e.g., GATE CS Full Mock Exam 1 (Closed Book Simulation)..."
                             : "e.g., Syllabus analysis and planning..."
