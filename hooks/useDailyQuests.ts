@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { createClient } from "@/utils/supabase/client"
+import { enqueueSyncItem } from "@/lib/offline-sync"
 
 export interface Quest {
   id: string
@@ -58,59 +59,127 @@ const QUEST_TEMPLATES: Omit<Quest, "progress" | "completed" | "completedAt">[] =
   {
     id: "morning-start",
     title: "Start before 10 AM",
-    description: "Your brain encodes memory best at its morning peak",
+    description: "Early momentum protects evening rest",
     icon: "Sunrise",
     target: 1,
-    expReward: 50,
+    expReward: 60,
   },
 ]
 
-const EMPTY_STREAK: StreakData = {
-  currentStreak: 0,
-  longestStreak: 0,
-  lastQuestDate: null,
-  daysCompleted: 0,
-  streakFreezes: 0,
+const CACHE_QUESTS_KEY = "gate_tracker_cached_quests"
+const CACHE_STREAK_KEY = "gate_tracker_cached_streak"
+
+function todayStr(): string {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, "0")
+  const d = String(now.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
 }
 
-function todayStr() {
-  return new Date().toISOString().slice(0, 10)
+function dayDiff(dateA: string, dateB: string): number {
+  const a = new Date(`${dateA}T00:00:00Z`).getTime()
+  const b = new Date(`${dateB}T00:00:00Z`).getTime()
+  return Math.round(Math.abs(b - a) / (1000 * 60 * 60 * 24))
 }
 
-function dayDiff(a: string, b: string) {
-  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000)
-}
-
-// Variable-ratio reward roll — unpredictable bonuses keep motivation high
 function rollReward(allCompleted: boolean): QuestReward | null {
   if (!allCompleted) return null
   const roll = Math.random()
-  if (roll < 0.02)
-    return { type: "legendary", message: "JACKPOT: Streak Freeze earned!", bonusExp: 200 }
-  if (roll < 0.10)
-    return { type: "epic", message: "Big win: Bonus Study Pack unlocked", bonusExp: 100 }
-  if (roll < 0.30)
-    return { type: "rare", message: "Nice! +50 bonus EXP", bonusExp: 50 }
-  return { type: "common", message: "Consistency bonus: +10 EXP", bonusExp: 10 }
+  if (roll < 0.05) {
+    return {
+      type: "legendary",
+      message: "Monarch’s Blessing: The dungeon bow before you.",
+      bonusExp: 500,
+    }
+  }
+  if (roll < 0.2) {
+    return {
+      type: "epic",
+      message: "Shadow Extraction: A powerful routine rises.",
+      bonusExp: 250,
+    }
+  }
+  if (roll < 0.5) {
+    return {
+      type: "rare",
+      message: "Hunter’s Instinct: Today you didn't hesitate.",
+      bonusExp: 150,
+    }
+  }
+  return {
+    type: "common",
+    message: "Gate Cleared: Consistency is your true weapon.",
+    bonusExp: 75,
+  }
 }
 
 export function useDailyQuests() {
   const supabase = createClient()
   const [userId, setUserId] = useState<string | null>(null)
   const [quests, setQuests] = useState<Quest[]>([])
-  const [streak, setStreak] = useState<StreakData>(EMPTY_STREAK)
+  const [streak, setStreak] = useState<StreakData>({
+    currentStreak: 0,
+    longestStreak: 0,
+    lastQuestDate: null,
+    daysCompleted: 0,
+    streakFreezes: 0,
+  })
   const [loading, setLoading] = useState(true)
   const [reward, setReward] = useState<QuestReward | null>(null)
   const [allDone, setAllDone] = useState(false)
   const initialized = useRef(false)
 
-  // Load auth user
+  // Initialize from cache immediately
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUserId(user?.id ?? null)
-      if (!user) setLoading(false)
-    })
+    if (typeof window === "undefined") return
+    try {
+      const cachedQ = localStorage.getItem(CACHE_QUESTS_KEY)
+      if (cachedQ) {
+        const parsed = JSON.parse(cachedQ)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setQuests(parsed)
+          setAllDone(parsed.every((q: Quest) => q.completed))
+        }
+      }
+      const cachedS = localStorage.getItem(CACHE_STREAK_KEY)
+      if (cachedS) {
+        setStreak(JSON.parse(cachedS))
+      }
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const cachedId = localStorage.getItem("gate_tracker_cached_user_id")
+      if (cachedId) setUserId(cachedId)
+    }
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) setUserId(session.user.id)
+    }).catch(() => {})
+
+    if (typeof navigator === "undefined" || navigator.onLine) {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user) setUserId(user.id)
+        setLoading(false)
+      }).catch(() => {
+        setLoading(false)
+      })
+    } else {
+      setLoading(false)
+    }
   }, [supabase])
+
+  const saveCache = (newQuests: Quest[], newStreak?: StreakData) => {
+    if (typeof window === "undefined") return
+    try {
+      localStorage.setItem(CACHE_QUESTS_KEY, JSON.stringify(newQuests))
+      if (newStreak) {
+        localStorage.setItem(CACHE_STREAK_KEY, JSON.stringify(newStreak))
+      }
+    } catch {}
+  }
 
   // Load or generate today's quests + streak
   const loadQuests = useCallback(async () => {
@@ -119,52 +188,61 @@ export function useDailyQuests() {
 
     const today = todayStr()
 
-    // Fetch existing quest row for today
-    const { data: existing } = await supabase
-      .from("daily_quests")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("quest_date", today)
-      .maybeSingle()
+    try {
+      // Fetch existing quest row for today
+      const { data: existing, error } = await supabase
+        .from("daily_quests")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("quest_date", today)
+        .maybeSingle()
 
-    if (existing) {
-      setQuests(existing.quests as Quest[])
-      setAllDone(existing.all_completed)
-    } else {
-      // The System issues fresh quests each day
-      const fresh: Quest[] = QUEST_TEMPLATES.map((t) => ({
-        ...t,
-        progress: 0,
-        completed: false,
-      }))
-      setQuests(fresh)
-      setAllDone(false)
-      await supabase.from("daily_quests").insert({
-        user_id: userId,
-        quest_date: today,
-        quests: fresh,
-      })
+      if (existing) {
+        const loadedQuests = existing.quests as Quest[]
+        setQuests(loadedQuests)
+        setAllDone(existing.all_completed)
+        saveCache(loadedQuests)
+      } else if (!error) {
+        // The System issues fresh quests each day
+        const fresh: Quest[] = QUEST_TEMPLATES.map((t) => ({
+          ...t,
+          progress: 0,
+          completed: false,
+        }))
+        setQuests(fresh)
+        setAllDone(false)
+        saveCache(fresh)
+        await supabase.from("daily_quests").insert({
+          user_id: userId,
+          quest_date: today,
+          quests: fresh,
+        })
+      }
+
+      // Fetch streak
+      const { data: streakRow } = await supabase
+        .from("streaks")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle()
+
+      if (streakRow) {
+        const loadedStreak: StreakData = {
+          currentStreak: streakRow.current_streak,
+          longestStreak: streakRow.longest_streak,
+          lastQuestDate: streakRow.last_quest_date,
+          daysCompleted: streakRow.days_completed,
+          streakFreezes: streakRow.streak_freezes,
+        }
+        setStreak(loadedStreak)
+        saveCache(quests, loadedStreak)
+      }
+    } catch (err) {
+      console.warn("[useDailyQuests] Network failed, running in offline mode:", err)
+    } finally {
+      setLoading(false)
     }
-
-    // Fetch streak
-    const { data: streakRow } = await supabase
-      .from("streaks")
-      .select("*")
-      .eq("user_id", userId)
-      .maybeSingle()
-
-    if (streakRow) {
-      setStreak({
-        currentStreak: streakRow.current_streak,
-        longestStreak: streakRow.longest_streak,
-        lastQuestDate: streakRow.last_quest_date,
-        daysCompleted: streakRow.days_completed,
-        streakFreezes: streakRow.streak_freezes,
-      })
-    }
-
-    setLoading(false)
-  }, [supabase, userId])
+  }, [quests, supabase, userId])
 
   useEffect(() => {
     if (userId && !initialized.current) {
@@ -172,6 +250,115 @@ export function useDailyQuests() {
       loadQuests()
     }
   }, [userId, loadQuests])
+
+  // Streak logic with loss aversion
+  const updateStreak = useCallback(
+    async (bonusExp: number) => {
+      if (!userId) return
+      const today = todayStr()
+
+      let current = { ...streak }
+      try {
+        const { data: row } = await supabase
+          .from("streaks")
+          .select("*")
+          .eq("user_id", userId)
+          .maybeSingle()
+        if (row) {
+          current = {
+            currentStreak: row.current_streak,
+            longestStreak: row.longest_streak,
+            lastQuestDate: row.last_quest_date,
+            daysCompleted: row.days_completed,
+            streakFreezes: row.streak_freezes,
+          }
+        }
+      } catch {}
+
+      let currentStreak = current.currentStreak
+      const last = current.lastQuestDate
+
+      if (last === today) {
+        // Already counted today
+      } else if (last && dayDiff(last, today) === 1) {
+        currentStreak += 1
+      } else if (last && dayDiff(last, today) > 1) {
+        if (current.streakFreezes > 0) {
+          currentStreak += 1
+        } else {
+          currentStreak = 1
+        }
+      } else {
+        currentStreak = 1
+      }
+
+      const daysCompleted = current.daysCompleted + (last === today ? 0 : 1)
+      const payload = {
+        user_id: userId,
+        current_streak: currentStreak,
+        longest_streak: Math.max(current.longestStreak, currentStreak),
+        last_quest_date: today,
+        days_completed: daysCompleted,
+        updated_at: new Date().toISOString(),
+      }
+
+      const nextStreakObj: StreakData = {
+        currentStreak,
+        longestStreak: Math.max(current.longestStreak, currentStreak),
+        lastQuestDate: today,
+        daysCompleted,
+        streakFreezes: current.streakFreezes,
+      }
+
+      setStreak(nextStreakObj)
+      saveCache(quests, nextStreakObj)
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        await enqueueSyncItem({
+          table: "streaks",
+          action: "upsert",
+          payload,
+          matchCriteria: { user_id: userId },
+          userId,
+          description: `Daily Streak (${currentStreak} days)`,
+        })
+        return
+      }
+
+      try {
+        const { error } = await supabase.from("streaks").upsert(payload)
+        if (error) throw error
+
+        if (bonusExp > 0) {
+          try {
+            const { data: pRow } = await supabase
+              .from("user_progress")
+              .select("current_exp")
+              .eq("user_id", userId)
+              .maybeSingle()
+
+            const nextExp = (pRow?.current_exp ?? 0) + bonusExp
+            await supabase
+              .from("user_progress")
+              .update({ current_exp: nextExp, updated_at: new Date().toISOString() })
+              .eq("user_id", userId)
+
+            window.dispatchEvent(new CustomEvent("user-progress-changed"))
+          } catch {}
+        }
+      } catch {
+        await enqueueSyncItem({
+          table: "streaks",
+          action: "upsert",
+          payload,
+          matchCriteria: { user_id: userId },
+          userId,
+          description: `Daily Streak (${currentStreak} days)`,
+        })
+      }
+    },
+    [quests, streak, supabase, userId],
+  )
 
   // Update quest progress; auto-complete at target
   const updateProgress = useCallback(
@@ -191,65 +378,66 @@ export function useDailyQuests() {
       })
 
       setQuests(next)
+      saveCache(next)
 
       const justCompleted = next.find((q) => q.id === questId)
       const wasCompleted = quests.find((q) => q.id === questId)?.completed
+      const today = todayStr()
+
       if (justCompleted?.completed && !wasCompleted) {
-        await supabase.from("quest_log").insert({
-          user_id: userId,
-          quest_id: questId,
-          quest_title: justCompleted.title,
-          exp_reward: justCompleted.expReward,
-        })
+        const isCurrentlyOnline = typeof navigator !== "undefined" && navigator.onLine
 
-        // Credit to unified single point table (user_progress & daily_reports)
-        if (justCompleted.expReward > 0) {
+        if (!isCurrentlyOnline) {
+          await enqueueSyncItem({
+            table: "quest_log",
+            action: "insert",
+            payload: {
+              user_id: userId,
+              quest_id: questId,
+              quest_title: justCompleted.title,
+              exp_reward: justCompleted.expReward,
+            },
+            userId,
+            description: `Completed Quest: ${justCompleted.title}`,
+          })
+        } else {
           try {
-            const { data: pRow } = await supabase
-              .from("user_progress")
-              .select("current_exp")
-              .eq("user_id", userId)
-              .maybeSingle()
+            await supabase.from("quest_log").insert({
+              user_id: userId,
+              quest_id: questId,
+              quest_title: justCompleted.title,
+              exp_reward: justCompleted.expReward,
+            })
 
-            const nextExp = (pRow?.current_exp ?? 0) + justCompleted.expReward
-            await supabase
-              .from("user_progress")
-              .update({ current_exp: nextExp, updated_at: new Date().toISOString() })
-              .eq("user_id", userId)
+            if (justCompleted.expReward > 0) {
+              const { data: pRow } = await supabase
+                .from("user_progress")
+                .select("current_exp")
+                .eq("user_id", userId)
+                .maybeSingle()
 
-            const today = todayStr()
-            const { data: todayReport } = await supabase
-              .from("daily_reports")
-              .select("*")
-              .eq("user_id", userId)
-              .eq("report_date", today)
-              .maybeSingle()
-
-            if (todayReport) {
+              const nextExp = (pRow?.current_exp ?? 0) + justCompleted.expReward
               await supabase
-                .from("daily_reports")
-                .update({
-                  exp_gained: (todayReport.exp_gained || 0) + justCompleted.expReward,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq("id", todayReport.id)
-            } else {
-              await supabase.from("daily_reports").insert({
-                user_id: userId,
-                report_date: today,
-                practice_hours: 0,
-                exp_gained: justCompleted.expReward,
-                lectures_completed: 0,
-                topics_revised: 0,
-                morning_session: false,
-                exercise_done: false,
-                distractions_level: "None",
-              })
-            }
+                .from("user_progress")
+                .update({ current_exp: nextExp, updated_at: new Date().toISOString() })
+                .eq("user_id", userId)
 
-            window.dispatchEvent(new CustomEvent("user-progress-changed"))
-          } catch (syncErr) {
-            console.error("Failed to sync quest EXP to user_progress:", syncErr)
+              window.dispatchEvent(new CustomEvent("user-progress-changed"))
+            }
+          } catch (err) {
+            console.warn("[useDailyQuests] Enqueuing quest offline:", err)
+            await enqueueSyncItem({
+              table: "quest_log",
+              action: "insert",
+              payload: {
+                user_id: userId,
+                quest_id: questId,
+                quest_title: justCompleted.title,
+                exp_reward: justCompleted.expReward,
+              },
+              userId,
+              description: `Completed Quest: ${justCompleted.title}`,
+            })
           }
         }
       }
@@ -257,11 +445,39 @@ export function useDailyQuests() {
       const nowAllDone = next.every((q) => q.completed)
       const wasAllDone = quests.every((q) => q.completed)
 
-      await supabase
-        .from("daily_quests")
-        .update({ quests: next, all_completed: nowAllDone, updated_at: new Date().toISOString() })
-        .eq("user_id", userId)
-        .eq("quest_date", todayStr())
+      const dailyQuestsPayload = {
+        user_id: userId,
+        quest_date: today,
+        quests: next,
+        all_completed: nowAllDone,
+        updated_at: new Date().toISOString(),
+      }
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        await enqueueSyncItem({
+          table: "daily_quests",
+          action: "upsert",
+          payload: dailyQuestsPayload,
+          onConflict: "user_id,quest_date",
+          userId,
+          description: `Quests Update (${nowAllDone ? "All Done" : "In Progress"})`,
+        })
+      } else {
+        try {
+          await supabase
+            .from("daily_quests")
+            .upsert(dailyQuestsPayload, { onConflict: "user_id,quest_date" })
+        } catch {
+          await enqueueSyncItem({
+            table: "daily_quests",
+            action: "upsert",
+            payload: dailyQuestsPayload,
+            onConflict: "user_id,quest_date",
+            userId,
+            description: `Quests Update (${nowAllDone ? "All Done" : "In Progress"})`,
+          })
+        }
+      }
 
       // All quests complete → streak + variable reward
       if (nowAllDone && !wasAllDone) {
@@ -271,111 +487,7 @@ export function useDailyQuests() {
         await updateStreak(rewardRoll?.bonusExp ?? 0)
       }
     },
-    [quests, supabase, userId],
-  )
-
-  // Streak logic with loss aversion: break the chain, shadows die
-  const updateStreak = useCallback(
-    async (bonusExp: number) => {
-      if (!userId) return
-      const today = todayStr()
-
-      const { data: row } = await supabase
-        .from("streaks")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle()
-
-      const current = row ?? {
-        current_streak: 0,
-        longest_streak: 0,
-        last_quest_date: null as string | null,
-        days_completed: 0,
-        streak_freezes: 0,
-      }
-
-      let currentStreak = current.current_streak
-      const last = current.last_quest_date
-
-      if (last === today) {
-        // Already counted today
-      } else if (last && dayDiff(last, today) === 1) {
-        currentStreak += 1
-      } else if (last && dayDiff(last, today) > 1) {
-        // Streak broken — check for streak freeze
-        if (current.streak_freezes > 0) {
-          currentStreak += 1
-          // consume a freeze implicitly
-          await supabase
-            .from("streaks")
-            .update({ streak_freezes: current.streak_freezes - 1 })
-            .eq("user_id", userId)
-        } else {
-          currentStreak = 1 // streak reset, start over
-        }
-      } else {
-        currentStreak = 1
-      }
-
-      const daysCompleted = current.days_completed + (last === today ? 0 : 1)
-      const payload = {
-        user_id: userId,
-        current_streak: currentStreak,
-        longest_streak: Math.max(current.longest_streak, currentStreak),
-        last_quest_date: today,
-        days_completed: daysCompleted,
-        updated_at: new Date().toISOString(),
-      }
-
-      const { error } = await supabase.from("streaks").upsert(payload)
-      if (!error) {
-        setStreak({
-          currentStreak,
-          longestStreak: Math.max(current.longest_streak, currentStreak),
-          lastQuestDate: today,
-          daysCompleted,
-          streakFreezes: current.streak_freezes,
-        })
-
-        if (bonusExp > 0) {
-          try {
-            const { data: pRow } = await supabase
-              .from("user_progress")
-              .select("current_exp")
-              .eq("user_id", userId)
-              .maybeSingle()
-
-            const nextExp = (pRow?.current_exp ?? 0) + bonusExp
-            await supabase
-              .from("user_progress")
-              .update({ current_exp: nextExp, updated_at: new Date().toISOString() })
-              .eq("user_id", userId)
-
-            const { data: todayReport } = await supabase
-              .from("daily_reports")
-              .select("*")
-              .eq("user_id", userId)
-              .eq("report_date", today)
-              .maybeSingle()
-
-            if (todayReport) {
-              await supabase
-                .from("daily_reports")
-                .update({
-                  exp_gained: (todayReport.exp_gained || 0) + bonusExp,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq("id", todayReport.id)
-            }
-
-            window.dispatchEvent(new CustomEvent("user-progress-changed"))
-          } catch {
-            // Silently continue
-          }
-        }
-      }
-    },
-    [supabase, userId],
+    [quests, supabase, updateStreak, userId],
   )
 
   // Dismiss reward popup

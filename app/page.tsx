@@ -109,6 +109,8 @@ import {
 import RankUpgradeModal from "@/components/RankUpgradeModal"
 import { ProgressAnalytics } from "@/components/ProgressAnalytics"
 import { ProgressErrorBoundary } from "@/components/ProgressErrorBoundary"
+import { OfflineSyncIndicator } from "@/components/OfflineSyncIndicator"
+import { PwaInstallPrompt } from "@/components/PwaInstallPrompt"
 
 const ranks: RankInfo[] = RANKS
 const themes = [
@@ -676,7 +678,11 @@ export default function GATETracker() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_OUT") {
+      // Never redirect to signin if offline
+      if (event === "SIGNED_OUT" && typeof navigator !== "undefined" && navigator.onLine) {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("gate_tracker_cached_user_id")
+        }
         router.push("/signin")
       }
     })
@@ -771,15 +777,17 @@ export default function GATETracker() {
               </span>
             </span>
           </a>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Open settings"
-            onClick={() => setSettingsOpen(true)}
-            className="lg:hidden"
-          >
-            <Settings />
-          </Button>
+          <div className="flex items-center gap-2 lg:hidden">
+            <OfflineSyncIndicator />
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Open settings"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Settings />
+            </Button>
+          </div>
         </div>
         <div className="px-4 pb-3 lg:px-4 lg:pt-5">
           <p className="mb-3 hidden px-3 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground lg:block">
@@ -879,6 +887,7 @@ export default function GATETracker() {
             )}
           </div>
           <div className="space-y-1">
+            <PwaInstallPrompt className="w-full justify-start text-muted-foreground" />
             <Button
               variant="ghost"
               onClick={() => setSettingsOpen(true)}
@@ -923,6 +932,8 @@ export default function GATETracker() {
                       : "Your progress"}
           </span>
           <div className="flex items-center gap-2">
+            <PwaInstallPrompt />
+            <OfflineSyncIndicator />
             <Button
               variant="ghost"
               size="icon"

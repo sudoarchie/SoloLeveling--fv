@@ -5,6 +5,7 @@ import { createClient } from "@/utils/supabase/client"
 import { toast } from "sonner"
 import { format, isSameDay } from "date-fns"
 import { analyzeStudyPatterns, type TimerEvent, type FocusType, normalizeFocusType } from "@/lib/study-pattern"
+import { enqueueSyncItem } from "@/lib/offline-sync"
 
 export type PomodoroPreset = "25" | "90" | "180" | "custom"
 export type PomodoroStatus = "idle" | "running" | "paused" | "completed"
@@ -683,35 +684,62 @@ export function usePomodoro() {
           window.dispatchEvent(new CustomEvent("user-progress-changed"))
 
           // 4. Upsert completed session into pomodoro_sessions
-          try {
-            await supabase.from("pomodoro_sessions").upsert({
-              id: sessionId,
-              user_id: user.id,
-              preset: completedPreset,
-              duration_minutes: mins,
-              description: taskDesc.trim(),
-              status: "completed",
-              completed: true,
-              exp_awarded: exp,
-              started_at: record.startedAt,
-              ended_at: completeTimestamp,
-              pause_count: current.pauseCount,
-              total_paused_seconds: current.totalPausedSeconds,
-              actual_focus_seconds: actualFocusSecs,
-              events: finalEvents,
-            })
+          const sessionPayload = {
+            id: sessionId,
+            user_id: user.id,
+            preset: completedPreset,
+            duration_minutes: mins,
+            description: taskDesc.trim(),
+            status: "completed",
+            completed: true,
+            exp_awarded: exp,
+            started_at: record.startedAt,
+            ended_at: completeTimestamp,
+            pause_count: current.pauseCount,
+            total_paused_seconds: current.totalPausedSeconds,
+            actual_focus_seconds: actualFocusSecs,
+            events: finalEvents,
+          }
 
+          if (typeof navigator !== "undefined" && !navigator.onLine) {
+            await enqueueSyncItem({
+              table: "pomodoro_sessions",
+              action: "upsert",
+              payload: sessionPayload,
+              userId: user.id,
+              description: `Focus Session (${mins}m)`,
+            })
+            await enqueueSyncItem({
+              table: "user_progress",
+              action: "update",
+              payload: { current_exp: nextExp, updated_at: new Date().toISOString() },
+              matchCriteria: { user_id: user.id },
+              userId: user.id,
+              description: `Pomodoro EXP +${exp}`,
+            })
+          } else {
             try {
-              await supabase.from("pomodoro_timer_events").insert({
-                session_id: sessionId,
-                user_id: user.id,
-                event_type: "complete",
-                created_at: completeTimestamp,
-                time_left_seconds: 0,
+              await supabase.from("pomodoro_sessions").upsert(sessionPayload)
+
+              try {
+                await supabase.from("pomodoro_timer_events").insert({
+                  session_id: sessionId,
+                  user_id: user.id,
+                  event_type: "complete",
+                  created_at: completeTimestamp,
+                  time_left_seconds: 0,
+                })
+              } catch {}
+            } catch (err) {
+              console.warn("Failed to persist pomodoro session completion in DB, queuing offline:", err)
+              await enqueueSyncItem({
+                table: "pomodoro_sessions",
+                action: "upsert",
+                payload: sessionPayload,
+                userId: user.id,
+                description: `Focus Session (${mins}m)`,
               })
-            } catch {}
-          } catch (err) {
-            console.warn("Failed to persist pomodoro session completion in DB:", err)
+            }
           }
         }
       } catch (err) {

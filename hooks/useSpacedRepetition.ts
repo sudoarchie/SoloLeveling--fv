@@ -2,50 +2,49 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { createClient } from "@/utils/supabase/client"
+import { enqueueSyncItem } from "@/lib/offline-sync"
+
+export type Difficulty = "easy" | "medium" | "hard"
 
 export interface RevisionTopic {
   id: string
   name: string
   subject: string
-  /** Index into REVIEW_INTERVALS: 0=1d, 1=3d, 2=7d, 3=21d */
-  stage: number
-  /** Successful review count (0-4). 4 = mastered */
+  stage: number // 0: 1d, 1: 3d, 2: 7d, 3: 21d, 4: mastered
   reviewCount: number
-  nextReviewDate: string // ISO date
+  nextReviewDate: string // YYYY-MM-DD
   mastered: boolean
-  /** How hard the user finds this topic: easy | medium | hard */
   difficulty: Difficulty
 }
 
-export type Difficulty = "easy" | "medium" | "hard"
+// Spaced repetition intervals in days (Leitner system variant)
+export const REVIEW_INTERVALS = [1, 3, 7, 21] // stage 0→1→2→3; stage 4 is mastered
+export const REVIEWS_TO_MASTER = REVIEW_INTERVALS.length
 
-// Ebbinghaus forgetting curve schedule (days)
-export const REVIEW_INTERVALS = [1, 3, 7, 21]
-export const REVIEWS_TO_MASTER = 4
-
-// Base EXP per review by stage (later reviews = stronger memory = more points)
-const STAGE_EXP = [20, 40, 70, 120]
-// Difficulty multipliers — harder topics earn more (desirable difficulty)
-export const DIFFICULTY_MULTIPLIER: Record<Difficulty, number> = {
-  easy: 1,
-  medium: 1.5,
-  hard: 2,
+// EXP rewarded per successful review based on difficulty
+const REVIEW_EXP: Record<Difficulty, number> = {
+  easy: 25,
+  medium: 50,
+  hard: 80,
 }
 
-/** EXP awarded for a successful review of a topic at its current stage */
-export function reviewExp(topic: Pick<RevisionTopic, "stage" | "difficulty">): number {
-  const stage = Math.min(topic.stage, STAGE_EXP.length - 1)
-  return Math.round(STAGE_EXP[stage] * DIFFICULTY_MULTIPLIER[topic.difficulty])
+const CACHE_TOPICS_KEY = "gate_tracker_cached_revision_topics"
+
+function todayStr(): string {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, "0")
+  const d = String(now.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
 }
 
-function todayStr() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function addDays(dateStr: string, days: number) {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
+function addDays(dateStr: string, days: number): string {
+  const date = new Date(`${dateStr}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  const y = date.getUTCFullYear()
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0")
+  const d = String(date.getUTCDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
 }
 
 function daysUntil(dateStr: string) {
@@ -60,26 +59,62 @@ export function useSpacedRepetition() {
   const [masterCelebration, setMasterCelebration] = useState<string | null>(null)
   const initialized = useRef(false)
 
+  // Initialize from cache immediately to prevent blank screen
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUserId(user?.id ?? null)
-      if (!user) setLoading(false)
-    })
+    if (typeof window === "undefined") return
+    try {
+      const cached = localStorage.getItem(CACHE_TOPICS_KEY)
+      if (cached) {
+        const parsed = JSON.parse(cached)
+        if (Array.isArray(parsed)) {
+          setTopics(parsed)
+        }
+      }
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const cachedId = localStorage.getItem("gate_tracker_cached_user_id")
+      if (cachedId) setUserId(cachedId)
+    }
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) setUserId(session.user.id)
+    }).catch(() => {})
+
+    if (typeof navigator === "undefined" || navigator.onLine) {
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (user) setUserId(user.id)
+        setLoading(false)
+      }).catch(() => {
+        setLoading(false)
+      })
+    } else {
+      setLoading(false)
+    }
   }, [supabase])
+
+  const saveCache = (newTopics: RevisionTopic[]) => {
+    if (typeof window === "undefined") return
+    try {
+      localStorage.setItem(CACHE_TOPICS_KEY, JSON.stringify(newTopics))
+    } catch {}
+  }
 
   const loadTopics = useCallback(async () => {
     if (!userId) return
     setLoading(true)
 
-    const { data, error } = await supabase
-      .from("revision_topics")
-      .select("*")
-      .eq("user_id", userId)
-      .order("next_review_date", { ascending: true })
+    try {
+      const { data, error } = await supabase
+        .from("revision_topics")
+        .select("*")
+        .eq("user_id", userId)
+        .order("next_review_date", { ascending: true })
 
-    if (!error && data) {
-      setTopics(
-        data.map((row: any) => ({
+      if (!error && data) {
+        const loadedTopics: RevisionTopic[] = data.map((row: any) => ({
           id: row.id,
           name: row.name,
           subject: row.subject,
@@ -88,10 +123,15 @@ export function useSpacedRepetition() {
           nextReviewDate: row.next_review_date,
           mastered: row.mastered,
           difficulty: (row.difficulty ?? "medium") as Difficulty,
-        })),
-      )
+        }))
+        setTopics(loadedTopics)
+        saveCache(loadedTopics)
+      }
+    } catch (err) {
+      console.warn("[useSpacedRepetition] Network query failed, offline mode active:", err)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [supabase, userId])
 
   useEffect(() => {
@@ -105,122 +145,193 @@ export function useSpacedRepetition() {
     async (name: string, subject: string, difficulty: Difficulty = "medium") => {
       if (!userId || !name.trim()) return
 
-      const { data, error } = await supabase
-        .from("revision_topics")
-        .insert({
-          user_id: userId,
-          name: name.trim(),
-          subject: subject.trim() || "General",
-          stage: 0,
-          review_count: 0,
-          next_review_date: todayStr(), // due immediately
-          difficulty,
-        })
-        .select()
-        .single()
+      const newId = `topic_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+      const newTopic: RevisionTopic = {
+        id: newId,
+        name: name.trim(),
+        subject: subject.trim() || "General",
+        stage: 0,
+        reviewCount: 0,
+        nextReviewDate: todayStr(), // due immediately
+        mastered: false,
+        difficulty,
+      }
 
-      if (!error && data) {
-        setTopics((prev) =>
-          [
-            ...prev,
-            {
-              id: data.id,
-              name: data.name,
-              subject: data.subject,
-              stage: data.stage,
-              reviewCount: data.review_count,
-              nextReviewDate: data.next_review_date,
-              mastered: data.mastered,
-              difficulty: (data.difficulty ?? "medium") as Difficulty,
-            },
-          ].sort((a, b) => a.nextReviewDate.localeCompare(b.nextReviewDate)),
-        )
+      // Optimistic update
+      const updatedTopics = [...topics, newTopic].sort((a, b) =>
+        a.nextReviewDate.localeCompare(b.nextReviewDate)
+      )
+      setTopics(updatedTopics)
+      saveCache(updatedTopics)
+
+      const payload = {
+        id: newId,
+        user_id: userId,
+        name: name.trim(),
+        subject: subject.trim() || "General",
+        stage: 0,
+        review_count: 0,
+        next_review_date: todayStr(),
+        difficulty,
+      }
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        await enqueueSyncItem({
+          table: "revision_topics",
+          action: "insert",
+          payload,
+          userId,
+          description: `Add Topic: ${name.trim()}`,
+        })
+        return
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from("revision_topics")
+          .insert(payload)
+          .select()
+          .single()
+
+        if (!error && data) {
+          // Replace generated ID with server ID if different
+          setTopics((prev) =>
+            prev.map((t) => (t.id === newId ? { ...t, id: data.id } : t))
+          )
+        }
+      } catch (err) {
+        console.warn("[useSpacedRepetition] addTopic failed, enqueued offline:", err)
+        await enqueueSyncItem({
+          table: "revision_topics",
+          action: "insert",
+          payload,
+          userId,
+          description: `Add Topic: ${name.trim()}`,
+        })
       }
     },
-    [supabase, userId],
+    [supabase, topics, userId],
   )
 
   const removeTopic = useCallback(
     async (id: string) => {
       if (!userId) return
-      setTopics((prev) => prev.filter((t) => t.id !== id))
-      await supabase.from("revision_topics").delete().eq("id", id).eq("user_id", userId)
+      const nextTopics = topics.filter((t) => t.id !== id)
+      setTopics(nextTopics)
+      saveCache(nextTopics)
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        await enqueueSyncItem({
+          table: "revision_topics",
+          action: "delete",
+          matchCriteria: { id, user_id: userId },
+          userId,
+          description: "Remove Topic",
+        })
+        return
+      }
+
+      try {
+        await supabase.from("revision_topics").delete().eq("id", id).eq("user_id", userId)
+      } catch {
+        await enqueueSyncItem({
+          table: "revision_topics",
+          action: "delete",
+          matchCriteria: { id, user_id: userId },
+          userId,
+          description: "Remove Topic",
+        })
+      }
     },
-    [supabase, userId],
+    [supabase, topics, userId],
   )
 
   // Complete a review: advance along the forgetting curve.
-  // Returns the EXP earned (0 on failure).
-  // Success → next interval (1d→3d→7d→21d→mastered)
-  // Fail → reset to stage 0, due tomorrow (re-learn)
   const completeReview = useCallback(
     async (id: string, success: boolean, difficulty?: Difficulty): Promise<number> => {
       if (!userId) return 0
 
       const topic = topics.find((t) => t.id === id)
-      if (!topic || topic.mastered) return 0
+      if (!topic) return 0
 
       const newDifficulty = difficulty ?? topic.difficulty
-      const expEarned = success ? reviewExp({ stage: topic.stage, difficulty: newDifficulty }) : 0
-
       let nextStage: number
-      let nextCount: number
-      let mastered = false
       let nextDate: string
+      let mastered = false
 
       if (success) {
-        nextCount = topic.reviewCount + 1
-        if (nextCount >= REVIEWS_TO_MASTER) {
+        nextStage = topic.stage + 1
+        if (nextStage >= REVIEW_INTERVALS.length) {
           mastered = true
-          nextStage = REVIEWS_TO_MASTER
-          nextDate = topic.nextReviewDate // stays done
+          nextDate = addDays(todayStr(), 365) // 1 year out
           setMasterCelebration(topic.name)
-          setTimeout(() => setMasterCelebration(null), 5000)
+          setTimeout(() => setMasterCelebration(null), 4000)
         } else {
-          nextStage = topic.stage + 1
           nextDate = addDays(todayStr(), REVIEW_INTERVALS[nextStage])
         }
       } else {
-        // Forgot it — spacing resets (relearning is faster than initial learning)
-        nextCount = Math.max(0, topic.reviewCount - 1)
+        // Failed recall: reset to stage 0, due tomorrow
         nextStage = 0
         nextDate = addDays(todayStr(), 1)
       }
 
-      // Optimistic update
-      setTopics((prev) =>
-        prev
-          .map((t) =>
-            t.id === id
-              ? {
-                  ...t,
-                  stage: nextStage,
-                  reviewCount: nextCount,
-                  nextReviewDate: nextDate,
-                  mastered,
-                  difficulty: newDifficulty,
-                }
-              : t,
-          )
-          .sort((a, b) => Number(a.mastered) - Number(b.mastered) || a.nextReviewDate.localeCompare(b.nextReviewDate)),
-      )
+      const nextCount = topic.reviewCount + 1
+      const expEarned = success ? REVIEW_EXP[newDifficulty] : 0
 
-      await supabase
-        .from("revision_topics")
-        .update({
-          stage: nextStage,
-          review_count: nextCount,
-          next_review_date: nextDate,
-          mastered,
-          difficulty: newDifficulty,
-          updated_at: new Date().toISOString(),
+      const updatedTopics = topics
+        .map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                stage: nextStage,
+                reviewCount: nextCount,
+                nextReviewDate: nextDate,
+                mastered,
+                difficulty: newDifficulty,
+              }
+            : t,
+        )
+        .sort(
+          (a, b) =>
+            Number(a.mastered) - Number(b.mastered) ||
+            a.nextReviewDate.localeCompare(b.nextReviewDate),
+        )
+
+      setTopics(updatedTopics)
+      saveCache(updatedTopics)
+
+      const updatePayload = {
+        stage: nextStage,
+        review_count: nextCount,
+        next_review_date: nextDate,
+        mastered,
+        difficulty: newDifficulty,
+        updated_at: new Date().toISOString(),
+      }
+
+      const today = todayStr()
+      const isCurrentlyOnline = typeof navigator !== "undefined" && navigator.onLine
+
+      if (!isCurrentlyOnline) {
+        await enqueueSyncItem({
+          table: "revision_topics",
+          action: "update",
+          payload: updatePayload,
+          matchCriteria: { id, user_id: userId },
+          userId,
+          description: `Reviewed: ${topic.name}`,
         })
-        .eq("id", id)
-        .eq("user_id", userId)
+        return expEarned
+      }
 
-      // Sync topic review to today's daily_reports (topics_revised & exp_gained)
       try {
-        const today = todayStr()
+        await supabase
+          .from("revision_topics")
+          .update(updatePayload)
+          .eq("id", id)
+          .eq("user_id", userId)
+
+        // Sync topic review to today's daily_reports
         const { data: todayReport } = await supabase
           .from("daily_reports")
           .select("id, topics_revised, exp_gained")
@@ -250,11 +361,20 @@ export function useSpacedRepetition() {
             distractions_level: "None",
           })
         }
+
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("user-progress-changed"))
         }
       } catch (syncErr) {
-        console.error("Failed to sync topic review to daily_reports:", syncErr)
+        console.warn("[useSpacedRepetition] Review sync failed, queuing offline:", syncErr)
+        await enqueueSyncItem({
+          table: "revision_topics",
+          action: "update",
+          payload: updatePayload,
+          matchCriteria: { id, user_id: userId },
+          userId,
+          description: `Reviewed: ${topic.name}`,
+        })
       }
 
       return expEarned
@@ -262,12 +382,6 @@ export function useSpacedRepetition() {
     [supabase, topics, userId],
   )
 
-  /**
-   * Called from the daily log: the user studied these topics today.
-   * - Existing topic (not mastered) → counts as a successful review, schedule advances
-   * - New topic → enters the system, first review due tomorrow (1d interval)
-   * Returns { reviewed, added, exp } for UI feedback.
-   */
   const logStudiedTopics = useCallback(
     async (
       names: string[],
@@ -283,7 +397,7 @@ export function useSpacedRepetition() {
       let added = 0
       let exp = 0
 
-      // Advance existing topics (studied today = successful recall)
+      // Advance existing topics
       const existing = topics.filter(
         (t) => !t.mastered && normalized.includes(t.name.toLowerCase()),
       )
@@ -292,53 +406,18 @@ export function useSpacedRepetition() {
         reviewed++
       }
 
-      // Create new topics — first review due tomorrow
+      // Create new topics
       const existingLower = new Set(topics.map((t) => t.name.toLowerCase()))
       const newNames = normalized.filter((n) => !existingLower.has(n))
 
-      if (newNames.length > 0) {
-        const rows = newNames.map((name) => ({
-          user_id: userId,
-          name,
-          subject: "General",
-          stage: 0,
-          review_count: 0,
-          next_review_date: addDays(todayStr(), REVIEW_INTERVALS[0]), // tomorrow
-          difficulty,
-        }))
-
-        const { data, error } = await supabase
-          .from("revision_topics")
-          .insert(rows)
-          .select()
-
-        if (!error && data) {
-          added = data.length
-          setTopics((prev) =>
-            [
-              ...prev,
-              ...data.map((row: any) => ({
-                id: row.id,
-                name: row.name,
-                subject: row.subject,
-                stage: row.stage,
-                reviewCount: row.review_count,
-                nextReviewDate: row.next_review_date,
-                mastered: row.mastered,
-                difficulty: (row.difficulty ?? "medium") as Difficulty,
-              })),
-            ].sort(
-              (a, b) =>
-                Number(a.mastered) - Number(b.mastered) ||
-                a.nextReviewDate.localeCompare(b.nextReviewDate),
-            ),
-          )
-        }
+      for (const name of newNames) {
+        await addTopic(name, "General", difficulty)
+        added++
       }
 
       return { reviewed, added, exp }
     },
-    [completeReview, supabase, topics, userId],
+    [addTopic, completeReview, topics, userId],
   )
 
   // Derived data

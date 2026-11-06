@@ -27,8 +27,22 @@ const isPublicRoute = createRouteMatcher([
  * non-public routes by redirecting unauthenticated users to /signin.
  */
 export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname
+
+  // Allow PWA assets and offline fallback to be served without auth interception
+  if (
+    pathname === '/manifest.json' ||
+    pathname === '/manifest.webmanifest' ||
+    pathname === '/sw.js' ||
+    pathname === '/offline.html' ||
+    pathname === '/favicon.ico' ||
+    pathname.startsWith('/icons/')
+  ) {
+    return NextResponse.next()
+  }
+
   // The admin API validates its own Bearer key before parsing any request body.
-  if (request.nextUrl.pathname.startsWith("/api/admin/")) return NextResponse.next()
+  if (pathname.startsWith("/api/admin/")) return NextResponse.next()
 
   let supabaseResponse = NextResponse.next({
     request,
@@ -55,24 +69,27 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // IMPORTANT: do not run code between createServerClient and
-  // supabase.auth.getUser(). This refreshes the session if expired.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  let user = null
+  try {
+    const { data } = await supabase.auth.getUser()
+    user = data?.user ?? null
+  } catch {
+    // Supabase auth service unreachable (offline)
+  }
 
-  const pathname = request.nextUrl.pathname
+  // Check if browser has Supabase auth session cookies
+  const hasAuthCookies = request.cookies.getAll().some((c) => c.name.includes("-auth-token"))
 
   // Redirect unauthenticated users away from protected routes
-  // (the root dashboard at / is protected too)
-  if (!user && !isPublicRoute(request)) {
+  // If user has auth cookies, allow through even if Supabase is unreachable (offline mode)
+  if (!user && !hasAuthCookies && !isPublicRoute(request)) {
     const url = request.nextUrl.clone()
     url.pathname = '/signin'
     return NextResponse.redirect(url)
   }
 
   // Redirect authenticated users away from auth pages
-  if (user && isPublicRoute(request)) {
+  if ((user || hasAuthCookies) && isPublicRoute(request)) {
     const url = request.nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)

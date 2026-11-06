@@ -7,7 +7,7 @@
     "dev": "next dev",
     "lint": "next lint",
     "start": "next start",
-    "test": "node --test tests/gate-predictor.test.mjs tests/ranks.test.mjs tests/study-pattern.test.mjs tests/mock-paper.test.mjs tests/mock-admin-api.test.mjs tests/focus-timeline.test.mjs",
+    "test": "node --test tests/gate-predictor.test.mjs tests/ranks.test.mjs tests/study-pattern.test.mjs tests/mock-paper.test.mjs tests/mock-admin-api.test.mjs tests/focus-timeline.test.mjs tests/pwa-offline-sync.test.mjs",
     "test:mock-bank": "node --test tests/mock-*.test.mjs",
     "mcp": "pnpm --dir mcp-server start",
     "mcp:stdio": "pnpm --dir mcp-server start:stdio",

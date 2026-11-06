@@ -5,14 +5,15 @@ import { Menu, X, User, Settings, LogOut, Command, Bell, Search } from "lucide-r
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/utils/supabase/client"
 import type { User as SupabaseUser } from "@supabase/supabase-js"
-import {
-  DropdownMenu,
+import { DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { OfflineSyncIndicator } from "@/components/OfflineSyncIndicator"
+import { PwaInstallPrompt } from "@/components/PwaInstallPrompt"
 
 export default function ModernCyberpunkNavbar() {
   const [isOpen, setIsOpen] = useState(false)
@@ -114,6 +115,12 @@ export default function ModernCyberpunkNavbar() {
                   ⌘K
                 </div>
               </Button>
+
+              {/* PWA & Sync Status */}
+              <div className="flex items-center space-x-2">
+                <PwaInstallPrompt />
+                <OfflineSyncIndicator />
+              </div>
 
               {/* Desktop Auth */}
               <div className="hidden md:flex items-center space-x-3">
